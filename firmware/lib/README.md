@@ -1,6 +1,11 @@
 # lib/
 
-Librerías privadas del proyecto (convención PlatformIO: cada subcarpeta con su propio
-`src/`+`include/` es una librería aislada, compilada por separado). Acá van drivers
-(RF TX/RX) y módulos de protocolo a medida que se implementen — no dependencias
-externas, esas van en `platformio.ini` (`lib_deps`).
+Librerías privadas del proyecto (convención PlatformIO: cada subcarpeta es una
+librería aislada, sus headers son visibles desde cualquier otro módulo sin rutas
+relativas). Organizadas por capa, no por caso de uso:
+
+- **`config/`** — constantes centralizadas (pines, baudrate, timings).
+- **`logger/`** — logging por niveles sobre `Serial` (capa Utilidades).
+- **`hardware/`** — wrappers de GPIO/periféricos (capa Hardware).
+
+Drivers RF y módulos de protocolo se agregan acá mismo a partir de la Etapa 3.
