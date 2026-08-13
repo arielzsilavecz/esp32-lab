@@ -10,4 +10,8 @@ constexpr uint8_t kLedPin = 2;
 constexpr uint32_t kBlinkIntervalMs = 500;
 constexpr unsigned long kSerialBaudRate = 115200;
 
+// Ver docs/hardware/mx05v-wiring.md para el cableado (divisor de tensión 5V->3.3V).
+constexpr uint8_t kRfReceiverPin = 34;
+constexpr uint32_t kCaptureWindowMs = 5000;
+
 }  // namespace config
