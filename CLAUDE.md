@@ -89,10 +89,13 @@ esp32-lab/
 │   ├── include/
 │   ├── lib/
 │   └── test/
+├── tools/                      # scripts de PC (Python, análisis de capturas — Etapa 4)
 └── .gitignore
 ```
 
-`firmware/` todavía no existe — se crea al arrancar la Etapa 1.
+`firmware/` es todo lo que corre en el ESP32 en tiempo real (C++). `tools/` es
+procesamiento de datos en la PC sobre archivos ya capturados (Python, sin dependencias
+externas) — ver ADR-0004 para por qué está separado así.
 
 ## 7. Roadmap
 

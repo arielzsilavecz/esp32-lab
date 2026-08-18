@@ -21,7 +21,8 @@ esp32-lab/
 │   ├── decisions/   ADRs — por qué se eligió cada cosa
 │   ├── hardware/    pinout, datasheets, notas de cableado
 │   └── captures/    capturas RF exportadas
-└── firmware/        proyecto PlatformIO (se crea en la Etapa 1)
+├── firmware/        proyecto PlatformIO (C++, corre en el ESP32)
+└── tools/           scripts de análisis (Python, corren en la PC)
 ```
 
 ## Hardware

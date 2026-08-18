@@ -14,4 +14,8 @@ constexpr unsigned long kSerialBaudRate = 115200;
 constexpr uint8_t kRfReceiverPin = 34;
 constexpr uint32_t kCaptureWindowMs = 5000;
 
+// FS1000A. GPIO32 es salida completa (34/35/36/39 son solo entrada) y no es
+// pin de strapping ni de flash. Ver docs/hardware/fs1000a-wiring.md.
+constexpr uint8_t kRfTransmitterPin = 32;
+
 }  // namespace config

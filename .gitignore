@@ -5,6 +5,10 @@ firmware/.vscode/c_cpp_properties.json
 firmware/.vscode/launch.json
 firmware/.vscode/ipch/
 
+# Python (tools/)
+__pycache__/
+*.pyc
+
 # OS
 .DS_Store
 Thumbs.db
