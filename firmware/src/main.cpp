@@ -24,8 +24,13 @@ constexpr uint8_t kGarenBitCount = 28;
 constexpr uint8_t kGarenRepetitions = 10;  // el control original manda ~14
 
 hardware::DigitalPin led(config::kLedPin, hardware::DigitalPin::Mode::Output);
+hardware::DigitalPin triggerButton(config::kTriggerButtonPin,
+                                    hardware::DigitalPin::Mode::InputPullup);
 rf::RfReceiver rfReceiver(config::kRfReceiverPin);
 rf::RfTransmitter rfTransmitter(config::kRfTransmitterPin, kGarenTiming);
+
+bool triggerWasPressed = false;
+uint32_t lastTriggerMs = 0;
 
 // Export en CSV plano por Serial (no por logger::, que antepone timestamp/tag
 // a cada línea y rompería el formato).
@@ -84,24 +89,31 @@ void runLoopback() {
   exportCapture(rfReceiver);
 }
 
-}  // namespace
+// El ESP32 como control remoto: apretar BOOT dispara la trama. Se detecta el
+// flanco de pulsacion (no el nivel) para que mantenerlo apretado no repita la
+// orden, y el cooldown descarta el rebote mecanico de paso.
+void pollTriggerButton() {
+  const bool pressed = !triggerButton.read();  // activo en bajo
 
-void setup() {
-  logger::begin(config::kSerialBaudRate);
-  led.begin();
-  rfTransmitter.begin();
-
-  // Deliberadamente no se transmite en el arranque: enchufar el USB no debe
-  // abrir el porton.
-  logger::info("main", "listo - 't' transmitir, 'c' capturar, 'l' loopback");
+  if (pressed && !triggerWasPressed) {
+    const uint32_t now = millis();
+    if (now - lastTriggerMs >= config::kTriggerCooldownMs) {
+      runTransmit();
+      lastTriggerMs = millis();
+    } else {
+      logger::warn("main", "pulsacion ignorada: en cooldown");
+    }
+  }
+  triggerWasPressed = pressed;
 }
 
-void loop() {
+void pollSerialCommand() {
   if (!Serial.available()) return;
 
   switch (Serial.read()) {
     case 't':
       runTransmit();
+      lastTriggerMs = millis();  // el cooldown tambien aplica al comando serial
       break;
     case 'c':
       runCapture();
@@ -112,4 +124,23 @@ void loop() {
     default:
       break;  // ignora newlines y cualquier otra tecla
   }
+}
+
+}  // namespace
+
+void setup() {
+  logger::begin(config::kSerialBaudRate);
+  led.begin();
+  triggerButton.begin();
+  rfTransmitter.begin();
+
+  // Deliberadamente no se transmite en el arranque: enchufar el USB no debe
+  // abrir el porton.
+  logger::info("main", "listo - boton BOOT transmite; 't' transmitir, 'c' capturar, 'l' loopback");
+}
+
+void loop() {
+  pollTriggerButton();
+  pollSerialCommand();
+  delay(10);  // antirrebote simple; no compite con nada mas en el lazo
 }
