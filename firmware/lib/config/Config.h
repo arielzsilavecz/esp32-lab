@@ -33,4 +33,10 @@ constexpr uint8_t kTriggerButtonPin = 0;
 // contra spam. Ver docs/captures/esp32-tx-generada-2026-08-18.md.
 constexpr uint32_t kTriggerCooldownMs = 3000;
 
+// Intervalo de polling saliente al backend (ver backend/, ADR-0006). 1s: a
+// esta escala el costo de infraestructura lo domina el proceso corriendo
+// 24/7, no la cantidad de requests, asi que un intervalo mas corto no
+// ahorra nada real -- se midio esa hipotesis antes de fijar el numero.
+constexpr uint32_t kBackendPollIntervalMs = 1000;
+
 }  // namespace config

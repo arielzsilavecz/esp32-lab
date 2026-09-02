@@ -22,7 +22,8 @@ esp32-lab/
 │   ├── hardware/    pinout, datasheets, notas de cableado
 │   └── captures/    capturas RF exportadas
 ├── firmware/        proyecto PlatformIO (C++, corre en el ESP32)
-└── tools/           scripts de análisis (Python, corren en la PC)
+├── tools/           scripts de análisis (Python, corren en la PC)
+└── backend/         centro de mando de dispositivos (Node/Express + Postgres, Railway)
 ```
 
 ## Hardware
@@ -38,6 +39,6 @@ esp32-lab/
 4. Análisis de protocolos (sin asumir protocolo de antemano)
 5. Comparación de capturas
 6. Transmisión RF
-7. Servidor HTTP / API REST
+7. Control remoto por app (`backend/`, sin servidor en la ESP32 — ver ADR-0006)
 
 Detalle completo en `CLAUDE.md`.

@@ -1,10 +1,13 @@
 #include <Arduino.h>
+#include <WiFi.h>
 
+#include "BackendClient.h"
 #include "Config.h"
 #include "DigitalPin.h"
 #include "Logger.h"
 #include "RfReceiver.h"
 #include "RfTransmitter.h"
+#include "Secrets.h"
 
 namespace {
 
@@ -28,9 +31,11 @@ hardware::DigitalPin triggerButton(config::kTriggerButtonPin,
                                     hardware::DigitalPin::Mode::InputPullup);
 rf::RfReceiver rfReceiver(config::kRfReceiverPin);
 rf::RfTransmitter rfTransmitter(config::kRfTransmitterPin, kGarenTiming);
+net::BackendClient backendClient(secrets::kBackendUrl, secrets::kDeviceToken);
 
 bool triggerWasPressed = false;
 uint32_t lastTriggerMs = 0;
+uint32_t lastBackendPollMs = 0;
 
 // Export en CSV plano por Serial (no por logger::, que antepone timestamp/tag
 // a cada línea y rompería el formato).
@@ -126,6 +131,53 @@ void pollSerialCommand() {
   }
 }
 
+// No bloquea para siempre si el WiFi no esta disponible: boton fisico y
+// comandos por serial tienen que seguir andando sin red.
+void connectWiFi() {
+  logger::info("main", "conectando WiFi");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(secrets::kWifiSsid, secrets::kWifiPassword);
+
+  const uint32_t deadline = millis() + 15000;
+  while (WiFi.status() != WL_CONNECTED && millis() < deadline) {
+    delay(250);
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    logger::info("main", "WiFi conectado");
+  } else {
+    logger::warn("main", "WiFi no conecto - sigue el boton/serial, sin backend");
+  }
+}
+
+// Polling saliente al backend (ver backend/, ADR-0006): sin esto no hace
+// falta IP publica ni puerto abierto. Bloqueante durante el round-trip
+// HTTPS, igual que pollTriggerButton/pollSerialCommand son bloqueantes
+// durante su propia transmision -- ninguno compite con el otro en un lazo de
+// un solo hilo.
+void pollBackendCommand() {
+  const uint32_t now = millis();
+  if (now - lastBackendPollMs < config::kBackendPollIntervalMs) return;
+  lastBackendPollMs = now;
+
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  const net::PendingCommand command = backendClient.pollPendingCommand();
+  if (!command.present) return;
+
+  // Mismo criterio que pollTriggerButton(): un comando que llega en cooldown
+  // se descarta, no se encola para mas tarde -- se confirma igual para que
+  // no vuelva a aparecer en el proximo poll.
+  if (now - lastTriggerMs < config::kTriggerCooldownMs) {
+    logger::warn("main", "comando del backend ignorado: en cooldown");
+  } else {
+    runTransmit();
+    lastTriggerMs = millis();
+  }
+
+  backendClient.acknowledge(command.id);
+}
+
 }  // namespace
 
 void setup() {
@@ -133,14 +185,16 @@ void setup() {
   led.begin();
   triggerButton.begin();
   rfTransmitter.begin();
+  connectWiFi();
 
   // Deliberadamente no se transmite en el arranque: enchufar el USB no debe
   // abrir el porton.
-  logger::info("main", "listo - boton BOOT transmite; 't' transmitir, 'c' capturar, 'l' loopback");
+  logger::info("main", "listo - boton BOOT/app/serial('t') transmiten, 'c' captura, 'l' loopback");
 }
 
 void loop() {
   pollTriggerButton();
   pollSerialCommand();
+  pollBackendCommand();
   delay(10);  // antirrebote simple; no compite con nada mas en el lazo
 }

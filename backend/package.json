@@ -1,0 +1,20 @@
+{
+  "name": "esp32-lab-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Centro de mando de dispositivos domoticos (porton, y lo que se sume despues). Ver docs/decisions/0006-backend-smart-home.md",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/migrate.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "express-session": "^1.18.2",
+    "pg": "^8.16.3"
+  }
+}
