@@ -20,7 +20,9 @@ dejó el circuito y el código tal cual, sin usar (ver ADR-0009 — más seguro 
 firmware encadena ventanas de captura de 200ms, busca la trama de estado del panel y,
 si la encuentra, decodifica las 6 zonas y las manda al backend (mismo backend que el
 portón, ver ADR-0009). Se ve en la misma página que controla el portón. No decodifica
-ni expone nunca las teclas apretadas — ver ADR-0009 por qué importa.
+ni expone nunca las teclas apretadas — ver ADR-0009 por qué importa. La captura y HTTPS
+corren en tareas separadas: mientras la red envía o reintenta un estado, el bus sigue
+siendo escuchado y una cola conserva siempre el estado más reciente.
 
 ## Uso — captura (RX)
 

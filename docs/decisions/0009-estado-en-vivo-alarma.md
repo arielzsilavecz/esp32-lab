@@ -28,6 +28,13 @@ trama dura ~18ms y el panel repite cada reporte 125ms después: 143ms es el mín
 teórico para asegurar una copia completa ante cualquier alineación de la ventana, y
 200ms deja margen. Si no aparece, el siguiente ciclo empieza de inmediato.
 
+**Captura y HTTPS en tareas separadas.** Una zona puede volver a reposo mientras el
+POST del estado activo todavía está esperando la red. Detener la captura durante ese
+round-trip pierde la trama de reposo para siempre porque el panel no la retransmite
+periódicamente. El lazo principal captura y decodifica sin depender de WiFi; una tarea
+FreeRTOS consume una cola de un elemento, que conserva siempre el estado más reciente,
+y reintenta el POST hasta entregarlo.
+
 **Nunca se decodifican ni transmiten códigos de tecla en este camino.** El decodificador
 de zonas (`xanaes::decodeZoneStatus`) solo mira las posiciones fijas del bloque de
 zonas — no tiene forma de exponer qué tecla se apretó ni la clave de usuario, ni por

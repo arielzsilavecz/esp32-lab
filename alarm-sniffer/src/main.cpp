@@ -1,5 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #include "BackendClient.h"
 #include "DatoTransmitter.h"
@@ -45,6 +48,16 @@ uint32_t lastHeartbeatMs = 0;
 constexpr uint32_t kHeartbeatIntervalMs = 1000;
 
 net::BackendClient backendClient(secrets::kBackendUrl, secrets::kAlarmDeviceToken);
+
+struct ZoneStatus {
+  bool zones[xanaes::kZoneCount];
+};
+
+// La captura no puede detenerse mientras HTTPS responde: una zona puede
+// volver a reposo durante ese round-trip y su trama no se repite despues.
+// Una cola de un elemento conserva siempre el estado mas reciente mientras
+// la tarea de red envia o reintenta el anterior.
+QueueHandle_t zoneStatusQueue = nullptr;
 
 // La trama de estado dura ~18ms y el panel la repite 125ms despues. Una
 // ventana de 143ms es el minimo teorico para garantizar que al menos una de
@@ -151,7 +164,7 @@ void connectWiFi() {
   }
 }
 
-void reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
+bool reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
   String json = "{\"zonas\":[";
   for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) {
     if (i > 0) json += ",";
@@ -161,9 +174,42 @@ void reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
 
   if (backendClient.reportEstado(json)) {
     logger::info("main", ("estado reportado: " + json).c_str());
+    return true;
   } else {
     logger::warn("main", "no se pudo reportar estado al backend");
+    return false;
   }
+}
+
+void reportZoneStatusTask(void*) {
+  ZoneStatus pending{};
+
+  for (;;) {
+    if (xQueueReceive(zoneStatusQueue, &pending, portMAX_DELAY) != pdTRUE) continue;
+
+    // Si la red falla, conservar el estado y reintentar. Antes de cada
+    // intento se toma una version mas nueva de la cola, si aparecio: para la
+    // vista en vivo importa el estado actual, no reproducir cada transicion.
+    for (;;) {
+      ZoneStatus newer{};
+      if (xQueueReceive(zoneStatusQueue, &newer, 0) == pdTRUE) pending = newer;
+
+      if (WiFi.status() == WL_CONNECTED && reportZoneStatus(pending.zones)) {
+        break;
+      }
+
+      logger::warn("main", "no se pudo reportar estado; reintento en 1s");
+      vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+  }
+}
+
+void enqueueZoneStatus(const bool zones[xanaes::kZoneCount]) {
+  if (zoneStatusQueue == nullptr) return;
+
+  ZoneStatus status{};
+  for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) status.zones[i] = zones[i];
+  xQueueOverwrite(zoneStatusQueue, &status);
 }
 
 // Ciclo automatico de estado: corre solo, sin intervencion, en paralelo a
@@ -172,7 +218,6 @@ void reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
 // sesiones de captura superpuestas.
 void pollStatusCycle() {
   if (capturing) return;
-  if (WiFi.status() != WL_CONNECTED) return;
 
   dataCapture.startCapture();
   delay(kStatusCaptureWindowMs);
@@ -180,7 +225,7 @@ void pollStatusCycle() {
 
   bool zones[xanaes::kZoneCount];
   if (xanaes::decodeZoneStatus(dataCapture, zones)) {
-    reportZoneStatus(zones);
+    enqueueZoneStatus(zones);
   }
   // Si la trama de estado no aparecio en esta ventana, no pasa nada: el
   // proximo ciclo arranca de inmediato y lo vuelve a intentar.
@@ -213,6 +258,12 @@ void setup() {
   led.begin();
   datoTx.begin();
   connectWiFi();
+
+  zoneStatusQueue = xQueueCreate(1, sizeof(ZoneStatus));
+  if (zoneStatusQueue == nullptr ||
+      xTaskCreate(reportZoneStatusTask, "zone-report", 8192, nullptr, 1, nullptr) != pdPASS) {
+    logger::warn("main", "no se pudo iniciar la tarea de reporte de zonas");
+  }
 
   // A diferencia del porton (ventana fija de captura), esta sesion es
   // explicita y sin duracion predefinida: no sabemos cuanto tarda alguien en
