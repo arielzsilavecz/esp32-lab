@@ -4,6 +4,12 @@ firmware/.vscode/.browse.c_cpp.db*
 firmware/.vscode/c_cpp_properties.json
 firmware/.vscode/launch.json
 firmware/.vscode/ipch/
+alarm-sniffer/.pio/
+alarm-sniffer/.vscode/.browse.c_cpp.db*
+alarm-sniffer/.vscode/c_cpp_properties.json
+alarm-sniffer/.vscode/launch.json
+alarm-sniffer/.vscode/ipch/
+alarm-sniffer/logs/
 
 # Python (tools/)
 __pycache__/

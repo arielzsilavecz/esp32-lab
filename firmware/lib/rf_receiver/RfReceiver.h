@@ -27,7 +27,14 @@ struct Edge {
 // desde el loop principal sin secciones críticas.
 class RfReceiver {
  public:
-  static constexpr size_t kCapacity = 2048;
+  // 2048 alcanzaba de sobra para una trama RF de 433MHz (~1200 flancos en 5s).
+  // Se subió a 8192 al reusar esta clase para el bus DATO de una alarma
+  // (alarm-sniffer/, ADR-0007): ese bus tiene trafico de fondo continuo
+  // (polling del panel cada ~125ms, mas rafagas cortas cada ~250-375ms) que
+  // llenaba 2048 antes de dar tiempo a caminar hasta el teclado y apretar una
+  // tecla. Costo en RAM trivial en un ESP32 (~64KB de ~320KB disponibles) --
+  // no afecta al porton, que nunca se acerco a llenar ni el limite viejo.
+  static constexpr size_t kCapacity = 8192;
 
   explicit RfReceiver(uint8_t pin);
 

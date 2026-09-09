@@ -103,14 +103,17 @@ esp32-lab/
 │   └── test/
 ├── tools/                      # scripts de PC (Python, análisis de capturas — Etapa 4)
 ├── backend/                    # centro de mando de dispositivos (Node/Express + Postgres, Railway)
+├── alarm-sniffer/               # proyecto PlatformIO aparte: sniffer de bus del teclado de alarma
 └── .gitignore
 ```
 
-`firmware/` es todo lo que corre en el ESP32 en tiempo real (C++). `tools/` es
-procesamiento de datos en la PC sobre archivos ya capturados (Python, sin dependencias
-externas) — ver ADR-0004 para por qué está separado así. `backend/` es el servicio en la
-nube que arbitra comandos entre la app web y los dispositivos (ESP32 y los que se sumen
-después) — ver ADR-0006.
+`firmware/` es todo lo que corre en el ESP32 en tiempo real (C++) para el caso de uso
+del portón. `tools/` es procesamiento de datos en la PC sobre archivos ya capturados
+(Python, sin dependencias externas) — ver ADR-0004 para por qué está separado así.
+`backend/` es el servicio en la nube que arbitra comandos entre la app web y los
+dispositivos (ESP32 y los que se sumen después) — ver ADR-0006. `alarm-sniffer/` es un
+segundo proyecto PlatformIO, para un ESP32 físico distinto, que reusa módulos de
+`firmware/lib/` sin duplicarlos — ver ADR-0007.
 
 ## 7. Roadmap
 

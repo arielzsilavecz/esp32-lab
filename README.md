@@ -23,7 +23,8 @@ esp32-lab/
 │   └── captures/    capturas RF exportadas
 ├── firmware/        proyecto PlatformIO (C++, corre en el ESP32)
 ├── tools/           scripts de análisis (Python, corren en la PC)
-└── backend/         centro de mando de dispositivos (Node/Express + Postgres, Railway)
+├── backend/         centro de mando de dispositivos (Node/Express + Postgres, Railway)
+└── alarm-sniffer/   proyecto PlatformIO aparte: sniffer de bus de teclado de alarma
 ```
 
 ## Hardware
