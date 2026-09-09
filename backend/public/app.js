@@ -52,16 +52,13 @@ async function cargarHistorial(dispositivoId, historialEl) {
     : 'Sin activaciones todavia';
 }
 
-const ZONE_REFRESH_MS = 5000;
-const ZONE_STALE_MS = 15000; // 5x el ciclo de reporte del firmware (~3s) -- si no llego nada en este tiempo, el dispositivo esta desconectado, no todas las zonas cerradas
+// SSE entrega los cambios inmediatamente. Esta consulta lenta solo recupera
+// el estado si un evento se perdio durante una reconexion o un redeploy.
+const ZONE_FALLBACK_REFRESH_MS = 60000;
+const zoneViews = new Map();
 
-async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
-  const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
-  const { estado, estado_actualizado_at } = await response.json();
+function mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estadoActualizadoAt) {
   const zonas = estado?.zonas;
-
-  const desactualizado = !estado_actualizado_at ||
-    Date.now() - new Date(estado_actualizado_at).getTime() > ZONE_STALE_MS;
 
   zonasEl.innerHTML = '';
   if (!zonas) {
@@ -69,15 +66,33 @@ async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
   } else {
     zonas.forEach((activa, i) => {
       const badge = document.createElement('span');
-      badge.className = 'zona' + (desactualizado ? ' zona-desconocida' : activa ? ' zona-activa' : ' zona-reposo');
+      badge.className = 'zona ' + (activa ? 'zona-activa' : 'zona-reposo');
       badge.textContent = `Z${i + 1}`;
       zonasEl.appendChild(badge);
     });
   }
 
-  actualizadoEl.textContent = desactualizado
-    ? (estado_actualizado_at ? `Sin novedades desde ${formatoRelativo(estado_actualizado_at)} (¿desconectado?)` : 'Esperando al dispositivo...')
-    : `Actualizado ${formatoRelativo(estado_actualizado_at)}`;
+  actualizadoEl.textContent = estadoActualizadoAt
+    ? `Ultimo cambio reportado ${formatoRelativo(estadoActualizadoAt)}`
+    : 'Esperando al dispositivo...';
+}
+
+async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
+  const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
+  const { estado, estado_actualizado_at } = await response.json();
+  mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estado_actualizado_at);
+}
+
+function conectarEstadoEnVivo() {
+  const events = new EventSource('/api/dispositivos/eventos');
+
+  events.addEventListener('estado', (event) => {
+    const update = JSON.parse(event.data);
+    const view = zoneViews.get(String(update.id));
+    if (!view) return;
+    mostrarEstadoZonas(view.zonasEl, view.actualizadoEl,
+      update.estado, update.estado_actualizado_at);
+  });
 }
 
 async function init() {
@@ -112,8 +127,10 @@ async function init() {
       card.append(zonasEl, actualizadoEl);
       listEl.appendChild(card);
 
+      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl });
       cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl);
-      setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl), ZONE_REFRESH_MS);
+      setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl),
+        ZONE_FALLBACK_REFRESH_MS);
       continue;
     }
 
@@ -130,6 +147,8 @@ async function init() {
 
     cargarHistorial(dispositivo.id, historialEl);
   }
+
+  conectarEstadoEnVivo();
 }
 
 document.getElementById('logout').addEventListener('click', async () => {

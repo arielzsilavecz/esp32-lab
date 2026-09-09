@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
+import { subscribeToDeviceState } from '../stateEvents.js';
 
 export const dispositivosRouter = Router();
 
@@ -9,6 +10,32 @@ dispositivosRouter.use(requireAuth);
 dispositivosRouter.get('/', async (_req, res) => {
   const result = await pool.query('SELECT id, nombre, tipo FROM dispositivos ORDER BY id');
   res.json(result.rows);
+});
+
+// Canal servidor -> navegador para reflejar cada reporte del ESP32 sin
+// polling. EventSource se reconecta solo si Railway, la red o el navegador
+// cortan la conexion. Los comentarios periodicos evitan que un proxy cierre
+// una conexion sana por inactividad.
+dispositivosRouter.get('/eventos', (req, res) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  res.write('retry: 3000\n\n');
+
+  const sendState = (update) => {
+    res.write(`event: estado\ndata: ${JSON.stringify(update)}\n\n`);
+  };
+  const unsubscribe = subscribeToDeviceState(sendState);
+  const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 20000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });
 
 dispositivosRouter.post('/:id/comandos', async (req, res) => {

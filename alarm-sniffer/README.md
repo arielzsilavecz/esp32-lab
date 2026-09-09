@@ -16,11 +16,11 @@ circuito (transistor BC547C, colector/drenador abierto) y
 driver y la tabla de códigos. En la práctica no logró hacer reaccionar al panel real; se
 dejó el circuito y el código tal cual, sin usar (ver ADR-0009 — más seguro así).
 
-**El estado de zonas se reporta solo, en segundo plano**: con WiFi conectado, cada 3s el
-firmware abre una ventana corta de captura, busca la trama de estado del panel y, si la
-encuentra, decodifica las 6 zonas y las manda al backend (mismo backend que el portón,
-ver ADR-0009). Se ve en la misma página que controla el portón. No decodifica ni expone
-nunca las teclas apretadas — ver ADR-0009 por qué importa.
+**El estado de zonas se reporta solo, en segundo plano**: con WiFi conectado, el
+firmware encadena ventanas de captura de 200ms, busca la trama de estado del panel y,
+si la encuentra, decodifica las 6 zonas y las manda al backend (mismo backend que el
+portón, ver ADR-0009). Se ve en la misma página que controla el portón. No decodifica
+ni expone nunca las teclas apretadas — ver ADR-0009 por qué importa.
 
 ## Uso — captura (RX)
 

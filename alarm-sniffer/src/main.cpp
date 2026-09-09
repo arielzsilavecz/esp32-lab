@@ -46,15 +46,14 @@ constexpr uint32_t kHeartbeatIntervalMs = 1000;
 
 net::BackendClient backendClient(secrets::kBackendUrl, secrets::kAlarmDeviceToken);
 
-// La trama de estado NO es periodica: se emite (de a pares) recien cuando
-// una zona cambia, con huecos de varios segundos (medidos: hasta 14s) si no
-// cambia nada -- ver docs/decisions/0009-estado-en-vivo-alarma.md. Una
-// ventana corta se puede perder el cambio por completo, no solo demorarlo.
-// 8s deja margen comodo (el buffer de 8192 aguanta minutos incluso en
-// trafico alto); el proximo ciclo arranca apenas termina de procesar el
-// anterior (sin espera adicional), para minimizar el hueco de cobertura
-// entre ventanas.
-constexpr uint32_t kStatusCaptureWindowMs = 8000;
+// La trama de estado dura ~18ms y el panel la repite 125ms despues. Una
+// ventana de 143ms es el minimo teorico para garantizar que al menos una de
+// las dos copias quede completa, independientemente de donde caiga el borde
+// entre capturas. Se usan 200ms para dejar margen a variaciones de timing.
+// Los huecos de hasta 14s medidos son entre CAMBIOS distintos y no justifican
+// retener cada captura durante todo ese tiempo: el siguiente ciclo arranca
+// apenas termina de procesar el anterior.
+constexpr uint32_t kStatusCaptureWindowMs = 200;
 
 // Mismo formato que exportCapture() en firmware/src/main.cpp a proposito:
 // tools/analyze_capture.py y compare_captures.py funcionan sobre esta
@@ -220,7 +219,7 @@ void setup() {
   // caminar hasta el teclado real y apretar la tecla. 'c' arranca, 's' para.
   logger::info("main", "listo - 'c' arranca captura de DATO, 's' la para y vuelca el CSV");
   logger::info("main", "0-9, * o # simulan esa tecla en el teclado real (cuidado, panel en vivo)");
-  logger::info("main", "reportando estado de zonas al backend cada 3s en segundo plano");
+  logger::info("main", "monitoreando estado de zonas en ventanas de 200ms");
 }
 
 void loop() {

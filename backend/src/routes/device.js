@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireDeviceToken } from '../deviceAuth.js';
+import { publishDeviceState } from '../stateEvents.js';
 
 export const deviceRouter = Router();
 
@@ -47,9 +48,12 @@ deviceRouter.post('/estado', async (req, res) => {
     return res.status(400).json({ error: 'Falta "estado" en el body' });
   }
 
-  await pool.query(
-    'UPDATE dispositivos SET estado = $1, estado_actualizado_at = now() WHERE id = $2',
+  const result = await pool.query(
+    `UPDATE dispositivos SET estado = $1, estado_actualizado_at = now()
+     WHERE id = $2
+     RETURNING id, estado, estado_actualizado_at`,
     [estado, req.dispositivo.id]
   );
+  publishDeviceState(result.rows[0]);
   res.json({ ok: true });
 });

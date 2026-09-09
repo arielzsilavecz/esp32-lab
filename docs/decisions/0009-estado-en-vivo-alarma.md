@@ -21,13 +21,12 @@ zonas desde la misma página que ya controla el portón, no una página aparte.
 **Captura periódica, no un buffer circular continuo.** `RfReceiver` es de una sola
 sesión (start→stop→leer), pensado para "grabar unos segundos y volcar" — no para correr
 24/7. En vez de reescribir esa clase compartida (usada también por el portón, ya
-validada en producción) para que sea un ring buffer, el firmware del sniffer hace un
-ciclo simple: cada 3s, si no hay una captura manual en curso, abre una ventana de 2s,
-busca la trama de 145 símbolos con los umbrales ya medidos (nada de clustering
-adaptativo — el protocolo ya está entendido) y decodifica las 6 zonas. Si no aparece en
-esa ventana, no pasa nada: se reintenta 3s después. Riesgo aceptado: puede perderse una
-transición de zona que dure menos de un ciclo, pero el estado de zona en una alarma
-domiciliaria no cambia a esa velocidad.
+validada en producción) para que sea un ring buffer, el firmware del sniffer encadena
+ventanas de 200ms, busca la trama de 145 símbolos con los umbrales ya medidos (nada de
+clustering adaptativo — el protocolo ya está entendido) y decodifica las 6 zonas. La
+trama dura ~18ms y el panel repite cada reporte 125ms después: 143ms es el mínimo
+teórico para asegurar una copia completa ante cualquier alineación de la ventana, y
+200ms deja margen. Si no aparece, el siguiente ciclo empieza de inmediato.
 
 **Nunca se decodifican ni transmiten códigos de tecla en este camino.** El decodificador
 de zonas (`xanaes::decodeZoneStatus`) solo mira las posiciones fijas del bloque de
@@ -46,6 +45,13 @@ interesa el último valor, no quién lo cambió.
 que el portón, no un sistema aparte. Endpoints: `POST /api/device/estado` (dispositivo →
 backend, autenticado por token) y `GET /api/dispositivos/:id/estado` (página → backend,
 autenticado por sesión). La página distingue el layout por `tipo === 'alarma'`.
+
+**Actualización inmediata por Server-Sent Events (SSE).** Después de persistir un
+reporte, el backend lo publica a las conexiones abiertas en
+`GET /api/dispositivos/eventos`. La página mantiene una conexión `EventSource` y aplica
+el cambio apenas llega, sin esperar polling. Una consulta cada 60s queda solamente como
+recuperación ante eventos perdidos durante reconexiones o redeploys. SSE alcanza porque
+este canal es unidireccional (servidor → navegador); no hace falta WebSocket.
 
 ## Alternativas consideradas
 
