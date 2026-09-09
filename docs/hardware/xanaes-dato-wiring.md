@@ -67,10 +67,55 @@ colector abierto, una salida propia tiene que ser también de colector/drenador 
 (solo tirar a GND, nunca empujar a alto) para no arriesgar un conflicto eléctrico con
 el teclado o el panel reales — ver ADR-0008 para el diseño del transmisor.
 
-## Por qué GPIO34
+## Cableado de escritura (transmisor) — implementado
 
-Solo-entrada, sin conflicto con flash ni pines de strapping — mismo criterio que el
-receptor 433MHz del portón (`docs/hardware/mx05v-wiring.md`).
+Ver ADR-0008 para el porqué de la topología (colector/drenador abierto). Circuito:
+
+```
++12V (bus, ya existe)
+  |
+ ~2.7k (pull-up del panel/teclados — ya está, no se agrega nada)
+  |
+DATO ----------------------+
+                            |
+                       colector
+GPIO27 --------[1k]--- base   BC547C (NPN de señal chico)
+   |                   emisor
+  10k                       |
+   |                       GND (común con el panel)
+  GND
+```
+
+- **Transistor**: BC547C (marcado "C547C" en el cuerpo — ver nota de pinout abajo).
+  Cualquier NPN de señal chico serviría: la corriente en juego es mínima (`12V /
+  2.7kΩ ≈ 4.4mA` en el peor caso).
+- **Resistencia de base**: 1kΩ entre GPIO27 y la base — da `(3.3V - 0.7V)/1kΩ ≈
+  2.6mA` de corriente de base, de sobra para saturar el transistor incluso con el
+  hFE bajo asumido en el cálculo conservador (el BC547C, submodelo de mayor
+  ganancia, satura con muchísimo más margen todavía).
+- **Sin resistencia en el colector**: no hace falta limitar corriente ahí, ya la
+  limita el pull-up del bus, y el transistor nunca empuja tensión — solo tira a GND.
+- **Pull-down de 10kΩ entre GPIO27 y GND**: si el pin queda flotando durante el
+  boot del ESP32 (antes de que `setup()` lo configure), por defecto cae a bajo →
+  transistor cortado → no molesta al teclado ni al panel reales mientras arranca.
+- **Pinout del BC547** en TO-92 (cara plana, patas hacia abajo): **E-B-C** de
+  izquierda a derecha. Confirmar con multímetro en modo diodo si la serigrafía no
+  se lee bien — es fácil invertir emisor y colector.
+
+**Polaridad invertida a propósito**: GPIO en alto satura el transistor y tira el
+bus a GND (nivel de bus = "0"); GPIO en bajo lo corta y el pull-up del bus lo sube
+solo (nivel de bus = "1"). El driver (`dato::DatoTransmitter` en
+`alarm-sniffer/lib/dato_transmitter/`) encapsula esta inversión — quien lo usa
+razona en términos del nivel del bus, no del pin.
+
+## Por qué GPIO34 (receptor) y GPIO27 (transmisor)
+
+**GPIO34**: solo-entrada, sin conflicto con flash ni pines de strapping — mismo
+criterio que el receptor 433MHz del portón (`docs/hardware/mx05v-wiring.md`).
+
+**GPIO27**: necesita ser de salida (GPIO34 no serviría para esto, es solo-entrada),
+no es pin de strapping y no tiene ningún rol especial durante el boot del ESP32 más
+allá del pull-down externo ya agregado por seguridad (ver arriba).
 
 ## Puesta a tierra — leer antes de cablear
 

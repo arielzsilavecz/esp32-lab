@@ -87,4 +87,18 @@ bool BackendClient::acknowledge(uint32_t commandId) {
   return status == 200;
 }
 
+bool BackendClient::reportEstado(const String& estadoJson) {
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+  http.begin(client, baseUrl_ + "/api/device/estado");
+  http.addHeader("Authorization", "Bearer " + deviceToken_);
+  http.addHeader("Content-Type", "application/json");
+
+  const int status = http.POST("{\"estado\":" + estadoJson + "}");
+  http.end();
+  return status == 200;
+}
+
 }  // namespace net

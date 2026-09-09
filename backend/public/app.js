@@ -52,6 +52,34 @@ async function cargarHistorial(dispositivoId, historialEl) {
     : 'Sin activaciones todavia';
 }
 
+const ZONE_REFRESH_MS = 5000;
+const ZONE_STALE_MS = 15000; // 5x el ciclo de reporte del firmware (~3s) -- si no llego nada en este tiempo, el dispositivo esta desconectado, no todas las zonas cerradas
+
+async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
+  const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
+  const { estado, estado_actualizado_at } = await response.json();
+  const zonas = estado?.zonas;
+
+  const desactualizado = !estado_actualizado_at ||
+    Date.now() - new Date(estado_actualizado_at).getTime() > ZONE_STALE_MS;
+
+  zonasEl.innerHTML = '';
+  if (!zonas) {
+    zonasEl.textContent = 'Sin datos todavia';
+  } else {
+    zonas.forEach((activa, i) => {
+      const badge = document.createElement('span');
+      badge.className = 'zona' + (desactualizado ? ' zona-desconocida' : activa ? ' zona-activa' : ' zona-reposo');
+      badge.textContent = `Z${i + 1}`;
+      zonasEl.appendChild(badge);
+    });
+  }
+
+  actualizadoEl.textContent = desactualizado
+    ? (estado_actualizado_at ? `Sin novedades desde ${formatoRelativo(estado_actualizado_at)} (¿desconectado?)` : 'Esperando al dispositivo...')
+    : `Actualizado ${formatoRelativo(estado_actualizado_at)}`;
+}
+
 async function init() {
   const response = await api('/api/dispositivos');
   const dispositivos = await response.json();
@@ -73,6 +101,22 @@ async function init() {
     tipo.className = 'tipo';
     tipo.textContent = dispositivo.tipo;
 
+    card.append(nombre, tipo);
+
+    if (dispositivo.tipo === 'alarma') {
+      const zonasEl = document.createElement('div');
+      zonasEl.className = 'zonas';
+      const actualizadoEl = document.createElement('div');
+      actualizadoEl.className = 'historial';
+
+      card.append(zonasEl, actualizadoEl);
+      listEl.appendChild(card);
+
+      cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl);
+      setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl), ZONE_REFRESH_MS);
+      continue;
+    }
+
     const boton = document.createElement('button');
     boton.textContent = 'Activar';
 
@@ -81,7 +125,7 @@ async function init() {
 
     boton.addEventListener('click', () => activar(dispositivo.id, boton, historialEl));
 
-    card.append(nombre, tipo, boton, historialEl);
+    card.append(boton, historialEl);
     listEl.appendChild(card);
 
     cargarHistorial(dispositivo.id, historialEl);

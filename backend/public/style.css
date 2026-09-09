@@ -133,3 +133,33 @@ button:disabled {
   font-size: 12px;
   color: var(--ink-muted);
 }
+
+.zonas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.zona {
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.zona-reposo {
+  background: rgba(12, 163, 12, 0.18);
+  color: var(--good);
+}
+
+.zona-activa {
+  background: rgba(208, 59, 59, 0.18);
+  color: var(--critical);
+}
+
+.zona-desconocida {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink-muted);
+}

@@ -34,6 +34,14 @@ class BackendClient {
   // comando ya no existia/estaba consumido.
   bool acknowledge(uint32_t commandId);
 
+  // Reporta el estado propio del dispositivo (direccion opuesta a
+  // pollPendingCommand: el dispositivo empuja, no consulta). `estadoJson` es
+  // el objeto JSON completo del campo "estado" ya armado por quien llama
+  // (ej. {"zonas":[true,false,...]}) -- este cliente no sabe nada de su
+  // contenido, solo lo transporta, igual que no interpreta tipo_comando.
+  // Devuelve false si la request fallo.
+  bool reportEstado(const String& estadoJson);
+
  private:
   String baseUrl_;
   String deviceToken_;

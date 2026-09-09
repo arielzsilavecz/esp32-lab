@@ -2,8 +2,10 @@
 
 ## Estado
 
-Aceptado (decisión de diseño). **No implementado todavía** — este ADR fija el enfoque
-antes de escribir el driver, seguido después.
+Implementado. Circuito armado y probado (BC547C, ver
+`docs/hardware/xanaes-dato-wiring.md`), driver escrito
+(`alarm-sniffer/lib/dato_transmitter/DatoTransmitter.{h,cpp}` +
+`alarm-sniffer/lib/xanaes_protocol/XanaesProtocol.h`).
 
 ## Fecha
 
@@ -63,9 +65,18 @@ la lógica.
 
 ## Consecuencias
 
-- Queda pendiente elegir el transistor concreto y armar el circuito (no bloqueante,
-  cualquier NPN de señal chico o MOSFET N de bajo umbral sirve dado que la corriente en
-  juego es mínima).
+- Transistor elegido: BC547C (NPN de señal chico, cualquier equivalente hubiera
+  servido dado que la corriente en juego es mínima). Base 1kΩ desde GPIO27, pull-down
+  externo de 10kΩ en GPIO27 (seguridad de boot — ver wiring doc). El driver
+  (`dato::DatoTransmitter`) expone `send(frame, bitCount)` en términos del nivel del
+  bus, ocultando la inversión eléctrica; la tabla de códigos y el armado de trama
+  (prefijo/sufijo fijo + 7 bits de tecla) viven aparte, en `xanaes::` — capa de
+  protocolo separada de la capa de driver.
+- El botón "casita" queda deliberadamente fuera de la tabla de códigos transmisibles:
+  su función real no está confirmada y apretarlo dejó el panel en un estado no
+  identificado durante la captura (`docs/captures/xanaes-casita-2026-09-07.md`). Si se
+  confirma su función más adelante, agregarlo es un cambio aislado en
+  `XanaesProtocol.h`.
 - Controlar el panel desde la app **no requiere** decodificar el estado de armado real
   (ver intento en `docs/captures/xanaes-armado-2026-09-08.md`, sin éxito — parece
   mezclado con el reloj en tiempo real del panel). El backend puede llevar su propio

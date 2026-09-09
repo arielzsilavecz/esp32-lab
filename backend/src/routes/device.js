@@ -36,3 +36,20 @@ deviceRouter.post('/comando/:id/consumido', async (req, res) => {
   }
   res.json({ ok: true });
 });
+
+// Direccion opuesta a comando-pendiente: el dispositivo empuja su propio
+// estado en vez de consultar que hacer. Sin validar el shape de `estado` a
+// proposito -- mismo criterio que dispositivos.tipo, es JSONB libre porque
+// todavia no hay un catalogo cerrado de que reporta cada tipo de dispositivo.
+deviceRouter.post('/estado', async (req, res) => {
+  const { estado } = req.body || {};
+  if (estado === undefined) {
+    return res.status(400).json({ error: 'Falta "estado" en el body' });
+  }
+
+  await pool.query(
+    'UPDATE dispositivos SET estado = $1, estado_actualizado_at = now() WHERE id = $2',
+    [estado, req.dispositivo.id]
+  );
+  res.json({ ok: true });
+});

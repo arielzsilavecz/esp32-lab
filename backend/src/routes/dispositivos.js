@@ -29,6 +29,20 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
   res.status(201).json(result.rows[0]);
 });
 
+// Contraparte de lectura de POST /api/device/estado: lo que ultimo reporto
+// el dispositivo de si mismo, no un comando que la app le mando.
+dispositivosRouter.get('/:id/estado', async (req, res) => {
+  const { id } = req.params;
+  const result = await pool.query(
+    'SELECT estado, estado_actualizado_at FROM dispositivos WHERE id = $1',
+    [id]
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ error: 'Dispositivo no encontrado' });
+  }
+  res.json(result.rows[0]);
+});
+
 // Ultimas activaciones de un dispositivo, con quien y cuando -- el registro
 // de auditoria que motivo elegir cuentas reales en vez de un token compartido.
 dispositivosRouter.get('/:id/historial', async (req, res) => {
