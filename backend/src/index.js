@@ -7,6 +7,8 @@ import { sessionMiddleware } from './auth.js';
 import { authRouter } from './routes/auth.js';
 import { dispositivosRouter } from './routes/dispositivos.js';
 import { deviceRouter } from './routes/device.js';
+import { notificationsRouter } from './routes/notifications.js';
+import { iniciarRetencion } from './retencion.js';
 
 dotenv.config();
 
@@ -24,6 +26,7 @@ app.use(sessionMiddleware());
 app.use('/api/auth', authRouter);
 app.use('/api/dispositivos', dispositivosRouter);
 app.use('/api/device', deviceRouter);
+app.use('/api/notificaciones', notificationsRouter);
 
 // Un solo proceso sirve API + frontend estatico -- ver ADR-0006 por que no
 // hay un Vercel aparte.
@@ -32,4 +35,5 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`esp32-lab backend escuchando en :${port}`);
+  iniciarRetencion();
 });

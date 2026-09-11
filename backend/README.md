@@ -18,6 +18,10 @@ cada decision de esta carpeta.
 
 ## Setup local
 
+La interfaz tambien es una PWA instalable. Cada navegador puede activar
+**Estoy afuera** para recibir Web Push ante cualquier cambio de zona, incluso
+con la pagina cerrada. El limite es un aviso cada 5 minutos por navegador.
+
 ```
 npm install
 cp .env.example .env   # completar DATABASE_URL y SESSION_SECRET
@@ -31,9 +35,17 @@ npm run dev
 
 Railway detecta un proyecto Node por `package.json` (`npm start`) sin configuracion
 adicional. Variables de entorno a cargar en el servicio: `DATABASE_URL` (la da el addon
-de Postgres de Railway), `SESSION_SECRET`, `NODE_ENV=production`. Correr
+de Postgres de Railway), `SESSION_SECRET` y `NODE_ENV=production`. Las claves VAPID
+se generan una sola vez y quedan guardadas en PostgreSQL. Opcionalmente se pueden
+inyectar con `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT`. Correr
 `npm run migrate` y `npm run seed` una vez contra la base de producción (por ejemplo
 desde la consola de Railway, o localmente apuntando `DATABASE_URL` a la base remota).
+
+Para habilitar las notificaciones tambien hay que ejecutar una vez:
+
+```
+npm run migrate -- 005_push_subscriptions.sql
+```
 
 ## Limitaciones conocidas, a proposito
 

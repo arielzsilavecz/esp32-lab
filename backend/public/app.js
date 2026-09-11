@@ -1,6 +1,14 @@
 const listEl = document.getElementById('dispositivos');
 const COOLDOWN_MS = 3000; // igual al cooldown del firmware -- ver Config.h
 
+// Sin boton propio de instalacion: sin el listener de beforeinstallprompt que
+// lo armaba, el navegador vuelve a mostrar su propio icono nativo de
+// instalar (barra de direcciones/menu) para una PWA instalable -- no hace
+// falta nada mas para que siga siendo instalable.
+const serviceWorkerRegistration = 'serviceWorker' in navigator
+  ? navigator.serviceWorker.register('/service-worker.js')
+  : Promise.resolve(null);
+
 async function api(path, options) {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -113,6 +121,123 @@ async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
   const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
   const { estado, estado_actualizado_at } = await response.json();
   mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estado_actualizado_at);
+}
+
+function base64UrlToUint8Array(value) {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
+async function responseJson(response) {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'No se pudo completar la operacion');
+  return body;
+}
+
+async function saveNotificationState(subscription, enabled) {
+  const response = await api('/api/notificaciones/suscripcion', {
+    method: 'PUT',
+    body: JSON.stringify({ subscription, enabled }),
+  });
+  return responseJson(response);
+}
+
+async function enableNotifications(registration) {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error('Las notificaciones estan bloqueadas en Chrome');
+  }
+
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    const response = await api('/api/notificaciones/public-key');
+    const { publicKey } = await responseJson(response);
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: base64UrlToUint8Array(publicKey),
+    });
+  }
+
+  await saveNotificationState(subscription, true);
+}
+
+async function disableNotifications(registration) {
+  const subscription = await registration.pushManager.getSubscription();
+  if (subscription) await saveNotificationState(subscription, false);
+}
+
+function crearControlNotificaciones() {
+  const container = document.createElement('div');
+  container.className = 'modo-afuera';
+
+  const copy = document.createElement('div');
+  const title = document.createElement('div');
+  title.className = 'modo-afuera-titulo';
+  title.textContent = 'Estoy afuera';
+  const status = document.createElement('div');
+  status.className = 'modo-afuera-estado';
+  status.textContent = 'Comprobando notificaciones...';
+  copy.append(title, status);
+
+  const toggleLabel = document.createElement('label');
+  toggleLabel.className = 'toggle';
+  toggleLabel.setAttribute('aria-label', 'Activar notificaciones cuando estoy afuera');
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.disabled = true;
+  toggle.setAttribute('role', 'switch');
+  const slider = document.createElement('span');
+  slider.className = 'toggle-slider';
+  toggleLabel.append(toggle, slider);
+  container.append(copy, toggleLabel);
+
+  serviceWorkerRegistration.then(async (registration) => {
+    if (!registration || !('PushManager' in window) || !('Notification' in window)) {
+      status.textContent = 'Este navegador no admite notificaciones';
+      return;
+    }
+
+    try {
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const response = await api('/api/notificaciones/estado', {
+          method: 'POST',
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        toggle.checked = (await responseJson(response)).enabled;
+      }
+      status.textContent = toggle.checked
+        ? 'Avisos activos · pausa de 5 min'
+        : 'Sin avisos en este dispositivo';
+      toggle.disabled = false;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+
+    toggle.addEventListener('change', async () => {
+      const requestedState = toggle.checked;
+      toggle.disabled = true;
+      status.textContent = requestedState ? 'Activando...' : 'Desactivando...';
+
+      try {
+        if (requestedState) await enableNotifications(registration);
+        else await disableNotifications(registration);
+        status.textContent = requestedState
+          ? 'Avisos activos · pausa de 5 min'
+          : 'Sin avisos en este dispositivo';
+      } catch (error) {
+        toggle.checked = !requestedState;
+        status.textContent = error.message;
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+  }).catch(() => {
+    status.textContent = 'No se pudo iniciar la app';
+  });
+
+  return container;
 }
 
 // Se fija la zona horaria en vez de usar la del navegador: el log es de una
@@ -231,10 +356,6 @@ async function init() {
     nombre.textContent = dispositivo.nombre;
 
     if (dispositivo.tipo === 'alarma') {
-      const tipo = document.createElement('div');
-      tipo.className = 'tipo';
-      tipo.textContent = dispositivo.tipo;
-
       const zonasEl = document.createElement('div');
       zonasEl.className = 'zonas';
       const actualizadoEl = document.createElement('div');
@@ -242,7 +363,8 @@ async function init() {
       const logEl = document.createElement('div');
       logEl.className = 'log-zonas';
 
-      card.append(nombre, tipo, zonasEl, actualizadoEl, logEl);
+      const notificationControl = crearControlNotificaciones();
+      card.append(nombre, notificationControl, zonasEl, actualizadoEl, logEl);
       listEl.appendChild(card);
 
       zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, logEl });

@@ -1,0 +1,19 @@
+{
+  "name": "Control de casa",
+  "short_name": "Casa",
+  "description": "Estado en vivo y control de los dispositivos de casa",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#1a1a19",
+  "icons": [
+    {
+      "src": "/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -125,6 +125,11 @@ un log de activaciones por hora. Se agregó la tabla `estados`
 - **Hora argentina fijada explícitamente** (`America/Argentina/Buenos_Aires`) al formatear,
   no la del navegador: el log es de una casa que está en Argentina y tiene que leerse
   igual desde cualquier lado. La base sigue guardando `TIMESTAMPTZ` absoluto.
-- **Sin política de retención todavía.** A razón de unos cientos de filas por día esto
-  tarda años en ser un problema en Postgres; si alguna vez molesta, borrar por
-  `created_at` es un cambio aislado.
+- **Retención de 60 días**, con un borrado diario dentro del mismo proceso Node
+  (`backend/src/retencion.js`), no con `pg_cron` ni un servicio de cron aparte: el
+  backend ya está prendido 24/7 porque el ESP32 del portón le pega cada segundo, así
+  que una consulta por día no justifica infraestructura nueva. Corre también al
+  arrancar, porque cada redeploy reinicia el temporizador. No era estrictamente
+  necesario por espacio — medido, cada fila ocupa ~130 bytes contando índice, así que
+  aun a 500 reportes diarios son ~24 MB al año — sino para que el historial no crezca
+  sin límite sin que nadie lo mire.
