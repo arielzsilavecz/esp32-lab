@@ -143,7 +143,7 @@ async function saveNotificationState(subscription, enabled) {
   return responseJson(response);
 }
 
-async function enableNotifications(registration) {
+async function getOrCreatePushSubscription(registration) {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     throw new Error('Las notificaciones estan bloqueadas en Chrome');
@@ -159,6 +159,11 @@ async function enableNotifications(registration) {
     });
   }
 
+  return subscription;
+}
+
+async function enableNotifications(registration) {
+  const subscription = await getOrCreatePushSubscription(registration);
   await saveNotificationState(subscription, true);
 }
 
@@ -168,8 +173,11 @@ async function disableNotifications(registration) {
 }
 
 function crearControlNotificaciones() {
-  const container = document.createElement('div');
-  container.className = 'modo-afuera';
+  const settings = document.createElement('div');
+  settings.className = 'notificaciones-config';
+
+  const manual = document.createElement('div');
+  manual.className = 'modo-afuera';
 
   const copy = document.createElement('div');
   const title = document.createElement('div');
@@ -190,7 +198,84 @@ function crearControlNotificaciones() {
   const slider = document.createElement('span');
   slider.className = 'toggle-slider';
   toggleLabel.append(toggle, slider);
-  container.append(copy, toggleLabel);
+  manual.append(copy, toggleLabel);
+
+  const schedule = document.createElement('details');
+  schedule.className = 'programacion';
+  const scheduleSummary = document.createElement('summary');
+  scheduleSummary.textContent = 'Programar avisos';
+
+  const scheduleBody = document.createElement('div');
+  scheduleBody.className = 'programacion-cuerpo';
+  const daysTitle = document.createElement('div');
+  daysTitle.className = 'programacion-etiqueta';
+  daysTitle.textContent = 'Dias';
+  const daysContainer = document.createElement('div');
+  daysContainer.className = 'programacion-dias';
+  const dayInputs = new Map();
+  const dayOptions = [
+    [1, 'L'], [2, 'M'], [3, 'X'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D'],
+  ];
+  for (const [value, label] of dayOptions) {
+    const dayLabel = document.createElement('label');
+    const dayInput = document.createElement('input');
+    dayInput.type = 'checkbox';
+    dayInput.value = value;
+    dayInput.checked = value <= 5;
+    const dayText = document.createElement('span');
+    dayText.textContent = label;
+    dayLabel.append(dayInput, dayText);
+    daysContainer.appendChild(dayLabel);
+    dayInputs.set(value, dayInput);
+  }
+
+  const times = document.createElement('div');
+  times.className = 'programacion-horas';
+  const startLabel = document.createElement('label');
+  startLabel.textContent = 'Desde';
+  const startInput = document.createElement('input');
+  startInput.type = 'time';
+  startInput.value = '00:00';
+  startLabel.appendChild(startInput);
+  const endLabel = document.createElement('label');
+  endLabel.textContent = 'Hasta';
+  const endInput = document.createElement('input');
+  endInput.type = 'time';
+  endInput.value = '08:00';
+  endLabel.appendChild(endInput);
+  times.append(startLabel, endLabel);
+
+  const scheduleEnabledLabel = document.createElement('label');
+  scheduleEnabledLabel.className = 'programacion-habilitada';
+  const scheduleEnabled = document.createElement('input');
+  scheduleEnabled.type = 'checkbox';
+  const scheduleEnabledText = document.createElement('span');
+  scheduleEnabledText.textContent = 'Activar este horario';
+  scheduleEnabledLabel.append(scheduleEnabled, scheduleEnabledText);
+
+  const saveSchedule = document.createElement('button');
+  saveSchedule.type = 'button';
+  saveSchedule.textContent = 'Guardar horario';
+  saveSchedule.disabled = true;
+  const scheduleStatus = document.createElement('div');
+  scheduleStatus.className = 'programacion-estado';
+  scheduleStatus.textContent = 'Horario de Argentina';
+
+  scheduleBody.append(daysTitle, daysContainer, times, scheduleEnabledLabel,
+    saveSchedule, scheduleStatus);
+  schedule.append(scheduleSummary, scheduleBody);
+  settings.append(manual, schedule);
+
+  function applySchedule(saved = {}) {
+    const days = saved.days || [1, 2, 3, 4, 5];
+    for (const [day, input] of dayInputs) input.checked = days.includes(day);
+    startInput.value = saved.start || '00:00';
+    endInput.value = saved.end || '08:00';
+    scheduleEnabled.checked = saved.enabled === true;
+    scheduleSummary.textContent = scheduleEnabled.checked
+      ? 'Programar avisos · activo'
+      : 'Programar avisos';
+  }
 
   serviceWorkerRegistration.then(async (registration) => {
     if (!registration || !('PushManager' in window) || !('Notification' in window)) {
@@ -205,12 +290,15 @@ function crearControlNotificaciones() {
           method: 'POST',
           body: JSON.stringify({ endpoint: subscription.endpoint }),
         });
-        toggle.checked = (await responseJson(response)).enabled;
+        const saved = await responseJson(response);
+        toggle.checked = saved.enabled;
+        applySchedule(saved.schedule);
       }
       status.textContent = toggle.checked
         ? 'Avisos activos · pausa de 5 min'
         : 'Sin avisos en este dispositivo';
       toggle.disabled = false;
+      saveSchedule.disabled = false;
     } catch (error) {
       status.textContent = error.message;
     }
@@ -233,11 +321,60 @@ function crearControlNotificaciones() {
         toggle.disabled = false;
       }
     });
+
+    saveSchedule.addEventListener('click', async () => {
+      const days = [...dayInputs]
+        .filter(([, input]) => input.checked)
+        .map(([day]) => day);
+      const enabled = scheduleEnabled.checked;
+
+      if (enabled && days.length === 0) {
+        scheduleStatus.textContent = 'Elegí al menos un dia';
+        return;
+      }
+      if (enabled && startInput.value === endInput.value) {
+        scheduleStatus.textContent = 'Las horas de inicio y fin deben ser distintas';
+        return;
+      }
+
+      saveSchedule.disabled = true;
+      scheduleStatus.textContent = 'Guardando...';
+      try {
+        let subscription = await registration.pushManager.getSubscription();
+        if (enabled) subscription = await getOrCreatePushSubscription(registration);
+        if (!subscription) {
+          scheduleStatus.textContent = 'Horario desactivado';
+          return;
+        }
+
+        const response = await api('/api/notificaciones/programacion', {
+          method: 'PUT',
+          body: JSON.stringify({
+            subscription,
+            enabled,
+            days,
+            start: startInput.value,
+            end: endInput.value,
+          }),
+        });
+        await responseJson(response);
+        scheduleSummary.textContent = enabled
+          ? 'Programar avisos · activo'
+          : 'Programar avisos';
+        scheduleStatus.textContent = enabled
+          ? 'Horario activo · hora de Argentina'
+          : 'Horario desactivado';
+      } catch (error) {
+        scheduleStatus.textContent = error.message;
+      } finally {
+        saveSchedule.disabled = false;
+      }
+    });
   }).catch(() => {
     status.textContent = 'No se pudo iniciar la app';
   });
 
-  return container;
+  return settings;
 }
 
 // Se fija la zona horaria en vez de usar la del navegador: el log es de una

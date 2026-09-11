@@ -20,7 +20,10 @@ cada decision de esta carpeta.
 
 La interfaz tambien es una PWA instalable. Cada navegador puede activar
 **Estoy afuera** para recibir Web Push ante cualquier cambio de zona, incluso
-con la pagina cerrada. El limite es un aviso cada 5 minutos por navegador.
+con la pagina cerrada. Tambien puede programar dias y horas de aviso automatico;
+el horario se interpreta en `America/Argentina/Buenos_Aires` y admite periodos
+que cruzan medianoche. El limite compartido es un aviso cada 5 minutos por
+navegador.
 
 ```
 npm install
@@ -45,6 +48,7 @@ Para habilitar las notificaciones tambien hay que ejecutar una vez:
 
 ```
 npm run migrate -- 005_push_subscriptions.sql
+npm run migrate -- 006_notification_schedules.sql
 ```
 
 ## Limitaciones conocidas, a proposito

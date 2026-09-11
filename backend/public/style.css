@@ -144,6 +144,12 @@ button:disabled {
   color: var(--ink-muted);
 }
 
+.notificaciones-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .modo-afuera {
   display: flex;
   align-items: center;
@@ -219,6 +225,106 @@ button:disabled {
 .toggle input:disabled + .toggle-slider {
   opacity: 0.5;
   cursor: default;
+}
+
+.programacion {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.programacion summary {
+  padding: 11px 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.programacion-cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 12px 12px;
+}
+
+.programacion-etiqueta,
+.programacion-estado {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.programacion-dias {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.programacion-dias label {
+  display: block;
+  cursor: pointer;
+}
+
+.programacion-dias input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.programacion-dias span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.programacion-dias input:checked + span {
+  border-color: var(--good);
+  background: rgba(12, 163, 12, 0.14);
+  color: var(--ink);
+}
+
+.programacion-dias input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.programacion-horas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.programacion-horas input {
+  width: 100%;
+  padding: 9px;
+}
+
+.programacion-habilitada {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.programacion-habilitada input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--good);
+}
+
+.programacion button {
+  align-self: flex-start;
+  padding: 9px 13px;
+  font-size: 13px;
 }
 
 /* El porton no se usa a diario: entra en una fila, no en una tarjeta alta. */

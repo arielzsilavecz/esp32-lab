@@ -96,12 +96,39 @@ export async function notifyZoneChanges(device, previousState, currentState) {
   // si llegan dos reportes casi juntos. El cooldown es propio de cada
   // navegador, no de la cuenta ni de la alarma.
   const subscriptions = await pool.query(
-    `UPDATE push_subscriptions
+    `WITH local_clock AS (
+       SELECT endpoint,
+              (now() AT TIME ZONE schedule_timezone)::time AS local_time,
+              EXTRACT(ISODOW FROM now() AT TIME ZONE schedule_timezone)::int AS local_day
+       FROM push_subscriptions
+       WHERE enabled = true OR schedule_enabled = true
+     )
+     UPDATE push_subscriptions AS subscription
      SET last_notified_at = now(), updated_at = now()
-     WHERE enabled = true
+     FROM local_clock AS clock
+     WHERE subscription.endpoint = clock.endpoint
+       AND (
+         subscription.enabled = true
+         OR (
+           subscription.schedule_enabled = true
+           AND (
+             (subscription.schedule_start < subscription.schedule_end
+              AND clock.local_day = ANY(subscription.schedule_days)
+              AND clock.local_time >= subscription.schedule_start
+              AND clock.local_time < subscription.schedule_end)
+             OR
+             (subscription.schedule_start > subscription.schedule_end
+              AND ((clock.local_time >= subscription.schedule_start
+                    AND clock.local_day = ANY(subscription.schedule_days))
+                   OR (clock.local_time < subscription.schedule_end
+                       AND (((clock.local_day + 5) % 7) + 1)
+                           = ANY(subscription.schedule_days))))
+           )
+         )
+       )
        AND (last_notified_at IS NULL
             OR last_notified_at <= now() - make_interval(mins => $1))
-     RETURNING endpoint, subscription`,
+     RETURNING subscription.endpoint, subscription.subscription`,
     [NOTIFICATION_COOLDOWN_MINUTES]
   );
 
