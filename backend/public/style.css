@@ -135,31 +135,183 @@ button:disabled {
 }
 
 .zonas {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  width: 100%;
 }
 
-.zona {
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ink);
+.plano-alarma {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 420 / 330;
+  margin: 8px 0 4px;
+  min-height: 250px;
+}
+
+.perimetro {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.perimetro path {
+  fill: rgba(255, 255, 255, 0.018);
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.sensor-zona,
+.abertura {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sensor-zona.ventana,
+.abertura {
+  height: 9%;
+  border: 2px solid currentColor;
+  border-radius: 4px;
+}
+
+.sensor-zona.ventana::after {
+  content: '';
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  border-top: 1px solid currentColor;
+  opacity: 0.65;
+}
+
+.sensor-zona span,
+.abertura span {
+  position: relative;
+  z-index: 1;
+  padding: 1px 4px;
+  background: var(--panel);
+}
+
+.zona-laser {
+  left: 7%;
+  right: 2%;
+  top: 3%;
+  height: 1px;
+  border-top: 2px dashed currentColor;
+}
+
+.zona-laser::before,
+.zona-laser::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  width: 2px;
+  height: 11px;
+  background: currentColor;
+}
+
+.zona-laser::before {
+  left: 0;
+}
+
+.zona-laser::after {
+  right: 0;
+}
+
+.zona-laser span {
+  position: absolute;
+  left: 0;
+  top: -24px;
+}
+
+.zona-2 {
+  left: 18%;
+  top: 18.2%;
+  width: 23%;
+}
+
+.puerta {
+  left: 48%;
+  top: 18.2%;
+  width: 14%;
+  color: var(--ink-muted);
+}
+
+.ventana-sin-zona {
+  left: 77%;
+  top: 6.1%;
+  width: 15%;
+  color: var(--ink-muted);
+}
+
+.ventana-superior-secundaria {
+  left: 77%;
+  top: 48.5%;
+  width: 15%;
+  color: var(--ink-muted);
+}
+
+.zona-3 {
+  left: 47%;
+  top: 48.5%;
+  width: 17%;
+}
+
+.zona-4 {
+  left: 51%;
+  top: 88.2%;
+  width: 23%;
+}
+
+.zona-5 {
+  left: 17%;
+  top: 88.2%;
+  width: 20%;
+}
+
+.zona-6 {
+  left: 4.3%;
+  top: 62%;
+  width: 8%;
+  height: 20% !important;
+}
+
+.zona-6::after {
+  display: none;
 }
 
 .zona-reposo {
-  background: rgba(12, 163, 12, 0.18);
   color: var(--good);
+  background-color: rgba(12, 163, 12, 0.09);
 }
 
 .zona-activa {
-  background: rgba(208, 59, 59, 0.18);
   color: var(--critical);
+  background-color: rgba(208, 59, 59, 0.13);
+  filter: drop-shadow(0 0 5px rgba(208, 59, 59, 0.45));
 }
 
 .zona-desconocida {
-  background: transparent;
-  border: 1px solid var(--border);
   color: var(--ink-muted);
+  background-color: var(--panel);
+}
+
+@media (max-width: 420px) {
+  body {
+    padding: 14px;
+  }
+
+  .dispositivo {
+    padding: 14px;
+  }
+
+  .plano-alarma {
+    min-height: 220px;
+  }
 }

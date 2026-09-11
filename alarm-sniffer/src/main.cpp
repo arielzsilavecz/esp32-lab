@@ -58,6 +58,8 @@ struct ZoneStatus {
 // Una cola de un elemento conserva siempre el estado mas reciente mientras
 // la tarea de red envia o reintenta el anterior.
 QueueHandle_t zoneStatusQueue = nullptr;
+ZoneStatus lastQueuedStatus{};
+bool hasLastQueuedStatus = false;
 
 // La trama de estado dura ~18ms y el panel la repite 125ms despues. Una
 // ventana de 143ms es el minimo teorico para garantizar que al menos una de
@@ -209,6 +211,20 @@ void enqueueZoneStatus(const bool zones[xanaes::kZoneCount]) {
 
   ZoneStatus status{};
   for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) status.zones[i] = zones[i];
+
+  if (hasLastQueuedStatus) {
+    bool changed = false;
+    for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) {
+      if (status.zones[i] != lastQueuedStatus.zones[i]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return;
+  }
+
+  lastQueuedStatus = status;
+  hasLastQueuedStatus = true;
   xQueueOverwrite(zoneStatusQueue, &status);
 }
 
@@ -225,6 +241,13 @@ void pollStatusCycle() {
 
   bool zones[xanaes::kZoneCount];
   if (xanaes::decodeZoneStatus(dataCapture, zones)) {
+    String detected = "estado detectado: [";
+    for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) {
+      if (i > 0) detected += ",";
+      detected += zones[i] ? "1" : "0";
+    }
+    detected += "]";
+    logger::info("main", detected.c_str());
     enqueueZoneStatus(zones);
   }
   // Si la trama de estado no aparecio en esta ventana, no pasa nada: el

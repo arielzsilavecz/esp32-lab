@@ -1,12 +1,12 @@
 #include "BackendClient.h"
 
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
-
 namespace net {
 
 BackendClient::BackendClient(const char* baseUrl, const char* deviceToken)
-    : baseUrl_(baseUrl), deviceToken_(deviceToken) {}
+    : baseUrl_(baseUrl), deviceToken_(deviceToken) {
+  secureClient_.setInsecure();
+  http_.setReuse(true);
+}
 
 namespace {
 
@@ -47,18 +47,14 @@ String extractStringField(const String& json, const char* field) {
 }  // namespace
 
 PendingCommand BackendClient::pollPendingCommand() {
-  WiFiClientSecure client;
-  client.setInsecure();
+  http_.begin(secureClient_, baseUrl_ + "/api/device/comando-pendiente");
+  http_.addHeader("Authorization", "Bearer " + deviceToken_);
 
-  HTTPClient http;
-  http.begin(client, baseUrl_ + "/api/device/comando-pendiente");
-  http.addHeader("Authorization", "Bearer " + deviceToken_);
-
-  const int status = http.GET();
+  const int status = http_.GET();
 
   PendingCommand result{false, 0, ""};
   if (status == 200) {
-    const String body = http.getString();
+    const String body = http_.getString();
     const long id = extractNumberField(body, "id");
     if (id >= 0) {
       result.present = true;
@@ -70,34 +66,28 @@ PendingCommand BackendClient::pollPendingCommand() {
   // 401, 500...) tambien cae en "sin comando" acá -- no hay una accion
   // distinta y útil que tomar todavia si falla la request en sí.
 
-  http.end();
+  http_.end();
   return result;
 }
 
 bool BackendClient::acknowledge(uint32_t commandId) {
-  WiFiClientSecure client;
-  client.setInsecure();
+  http_.begin(secureClient_, baseUrl_ + "/api/device/comando/" + String(commandId) + "/consumido");
+  http_.addHeader("Authorization", "Bearer " + deviceToken_);
 
-  HTTPClient http;
-  http.begin(client, baseUrl_ + "/api/device/comando/" + String(commandId) + "/consumido");
-  http.addHeader("Authorization", "Bearer " + deviceToken_);
-
-  const int status = http.POST("");
-  http.end();
+  const int status = http_.POST("");
+  if (status > 0) http_.getString();  // drena el body para poder reusar el socket
+  http_.end();
   return status == 200;
 }
 
 bool BackendClient::reportEstado(const String& estadoJson) {
-  WiFiClientSecure client;
-  client.setInsecure();
+  http_.begin(secureClient_, baseUrl_ + "/api/device/estado");
+  http_.addHeader("Authorization", "Bearer " + deviceToken_);
+  http_.addHeader("Content-Type", "application/json");
 
-  HTTPClient http;
-  http.begin(client, baseUrl_ + "/api/device/estado");
-  http.addHeader("Authorization", "Bearer " + deviceToken_);
-  http.addHeader("Content-Type", "application/json");
-
-  const int status = http.POST("{\"estado\":" + estadoJson + "}");
-  http.end();
+  const int status = http_.POST("{\"estado\":" + estadoJson + "}");
+  if (status > 0) http_.getString();  // drena el body para poder reusar el socket
+  http_.end();
   return status == 200;
 }
 

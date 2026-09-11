@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <cstdint>
 
 namespace net {
@@ -45,6 +47,8 @@ class BackendClient {
  private:
   String baseUrl_;
   String deviceToken_;
+  WiFiClientSecure secureClient_;
+  HTTPClient http_;
 };
 
 }  // namespace net

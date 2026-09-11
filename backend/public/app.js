@@ -57,20 +57,52 @@ async function cargarHistorial(dispositivoId, historialEl) {
 const ZONE_FALLBACK_REFRESH_MS = 60000;
 const zoneViews = new Map();
 
+const zoneLayout = [
+  { numero: 1, clase: 'zona-laser', tipo: 'laser' },
+  { numero: 2, clase: 'zona-2', tipo: 'ventana' },
+  { numero: 3, clase: 'zona-3', tipo: 'ventana' },
+  { numero: 4, clase: 'zona-4', tipo: 'ventana' },
+  { numero: 5, clase: 'zona-5', tipo: 'ventana' },
+  { numero: 6, clase: 'zona-6', tipo: 'ventana' },
+];
+
+function crearPlanoZonas(zonas) {
+  const plano = document.createElement('div');
+  plano.className = 'plano-alarma';
+  plano.setAttribute('role', 'group');
+  plano.setAttribute('aria-label', 'Plano de zonas de la alarma');
+  plano.innerHTML = `
+    <svg class="perimetro" viewBox="0 0 420 330" aria-hidden="true">
+      <path d="M35 75 H300 V35 H395 V175 H185 V215 H315 V305 H35 Z" />
+    </svg>
+    <div class="abertura puerta"><span>Puerta</span></div>
+    <div class="abertura ventana-sin-zona"><span>Ventana</span></div>
+    <div class="abertura ventana-superior-secundaria"><span>Ventana</span></div>
+  `;
+
+  zoneLayout.forEach(({ numero, clase, tipo }) => {
+    const activa = zonas?.[numero - 1];
+    const sensor = document.createElement('div');
+    const estado = activa === true ? 'zona-activa' :
+      activa === false ? 'zona-reposo' : 'zona-desconocida';
+    sensor.className = `sensor-zona ${tipo} ${clase} ${estado}`;
+    sensor.setAttribute('aria-label',
+      `Zona ${numero}: ${activa === true ? 'activada' : activa === false ? 'en reposo' : 'sin datos'}`);
+
+    const etiqueta = document.createElement('span');
+    etiqueta.textContent = `Z${numero}`;
+    sensor.appendChild(etiqueta);
+    plano.appendChild(sensor);
+  });
+
+  return plano;
+}
+
 function mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estadoActualizadoAt) {
   const zonas = estado?.zonas;
 
   zonasEl.innerHTML = '';
-  if (!zonas) {
-    zonasEl.textContent = 'Sin datos todavia';
-  } else {
-    zonas.forEach((activa, i) => {
-      const badge = document.createElement('span');
-      badge.className = 'zona ' + (activa ? 'zona-activa' : 'zona-reposo');
-      badge.textContent = `Z${i + 1}`;
-      zonasEl.appendChild(badge);
-    });
-  }
+  zonasEl.appendChild(crearPlanoZonas(zonas));
 
   actualizadoEl.textContent = estadoActualizadoAt
     ? `Ultimo cambio reportado ${formatoRelativo(estadoActualizadoAt)}`
