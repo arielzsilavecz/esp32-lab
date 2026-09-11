@@ -200,7 +200,7 @@ button:disabled {
 
 .zona-laser {
   left: 7%;
-  right: 2%;
+  right: 6%;
   top: 3%;
   height: 1px;
   border-top: 2px dashed currentColor;
@@ -266,7 +266,7 @@ button:disabled {
 .zona-4 {
   left: 51%;
   top: 88.2%;
-  width: 23%;
+  width: 20%;
 }
 
 .zona-5 {

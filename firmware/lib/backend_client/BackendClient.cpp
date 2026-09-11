@@ -80,6 +80,16 @@ bool BackendClient::acknowledge(uint32_t commandId) {
   return status == 200;
 }
 
+bool BackendClient::ping() {
+  http_.begin(secureClient_, baseUrl_ + "/api/device/ping");
+  http_.addHeader("Authorization", "Bearer " + deviceToken_);
+
+  const int status = http_.GET();
+  if (status > 0) http_.getString();  // drena el body para poder reusar el socket
+  http_.end();
+  return status == 204;
+}
+
 bool BackendClient::reportEstado(const String& estadoJson) {
   http_.begin(secureClient_, baseUrl_ + "/api/device/estado");
   http_.addHeader("Authorization", "Bearer " + deviceToken_);

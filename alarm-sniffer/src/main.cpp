@@ -166,6 +166,29 @@ void connectWiFi() {
   }
 }
 
+// Instrumentacion de latencia de red. Lo que interesa separar es el costo de
+// un POST sobre una conexion TLS ya abierta del de uno que tiene que rehacer
+// el handshake: los reportes solo salen cuando una zona cambia, asi que entre
+// uno y otro pueden pasar horas y el socket muere por inactividad. Por eso se
+// registra tambien cuanto estuvo ociosa la conexion antes de cada request.
+uint32_t lastNetworkEndMs = 0;
+bool hasNetworkActivity = false;
+
+void logNetworkTiming(const String& what, uint32_t startMs) {
+  const uint32_t endMs = millis();
+
+  String msg = what + " en " + String(endMs - startMs) + "ms";
+  if (hasNetworkActivity) {
+    msg += " (conexion ociosa " + String(startMs - lastNetworkEndMs) + "ms antes)";
+  } else {
+    msg += " (primera request desde el arranque)";
+  }
+
+  lastNetworkEndMs = endMs;
+  hasNetworkActivity = true;
+  logger::info("main", msg.c_str());
+}
+
 bool reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
   String json = "{\"zonas\":[";
   for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) {
@@ -174,20 +197,47 @@ bool reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
   }
   json += "]}";
 
-  if (backendClient.reportEstado(json)) {
+  const uint32_t startMs = millis();
+  const bool ok = backendClient.reportEstado(json);
+  logNetworkTiming(ok ? "POST estado ok" : "POST estado FALLO", startMs);
+
+  if (ok) {
     logger::info("main", ("estado reportado: " + json).c_str());
-    return true;
-  } else {
-    logger::warn("main", "no se pudo reportar estado al backend");
-    return false;
   }
+  return ok;
+}
+
+// Railway cierra la conexion TLS ociosa a los 60s exactos (medido). Rehacer
+// el handshake le cuesta ~1.9s a este ESP32 -- criptografia por software,
+// contra 482ms de la misma conexion desde una PC -- mientras que un POST
+// sobre una conexion ya abierta tarda ~250ms. Como entre cambio y cambio de
+// zona pasan minutos u horas, sin esto practicamente ningun reporte real
+// encontraria la conexion viva. 45s deja margen sobre los 60s medidos.
+constexpr uint32_t kKeepWarmIntervalMs = 45000;
+
+void keepConnectionWarm() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  const uint32_t startMs = millis();
+  // Solo se registra el fallo: esto corre cada 45s y loguear cada ping taparia
+  // todo lo demas. Que el keep-warm funcione se ve en el tiempo del proximo
+  // POST real, que es lo que importa medir.
+  if (!backendClient.ping()) {
+    logNetworkTiming("GET ping FALLO", startMs);
+    return;
+  }
+  lastNetworkEndMs = millis();
+  hasNetworkActivity = true;
 }
 
 void reportZoneStatusTask(void*) {
   ZoneStatus pending{};
 
   for (;;) {
-    if (xQueueReceive(zoneStatusQueue, &pending, portMAX_DELAY) != pdTRUE) continue;
+    if (xQueueReceive(zoneStatusQueue, &pending, pdMS_TO_TICKS(kKeepWarmIntervalMs)) != pdTRUE) {
+      keepConnectionWarm();
+      continue;
+    }
 
     // Si la red falla, conservar el estado y reintentar. Antes de cada
     // intento se toma una version mas nueva de la cola, si aparecio: para la
@@ -228,6 +278,24 @@ void enqueueZoneStatus(const bool zones[xanaes::kZoneCount]) {
   xQueueOverwrite(zoneStatusQueue, &status);
 }
 
+// Diagnostico: reencola el ultimo estado real decodificado, salteando el
+// filtro de "solo si cambio", para poder medir el costo de un POST cuando uno
+// quiera en vez de esperar a que una zona cambie sola. No inventa datos --
+// reenvia el ultimo estado que efectivamente se leyo del bus. Pasa por la
+// cola a proposito: el POST tiene que salir siempre desde la tarea de red,
+// nunca desde el lazo principal, porque BackendClient no es seguro de usar
+// desde dos tareas a la vez.
+void forceReport() {
+  if (!hasLastQueuedStatus) {
+    logger::warn("main", "todavia no se decodifico ningun estado - activa una zona primero");
+    return;
+  }
+  if (zoneStatusQueue == nullptr) return;
+
+  logger::info("main", "reenviando ultimo estado conocido (diagnostico)");
+  xQueueOverwrite(zoneStatusQueue, &lastQueuedStatus);
+}
+
 // Ciclo automatico de estado: corre solo, sin intervencion, en paralelo a
 // los comandos manuales por serial ('c'/'s'/teclas). Se salta a si mismo
 // mientras haya una captura manual en curso -- RfReceiver no soporta dos
@@ -265,6 +333,9 @@ void pollSerialCommand() {
     case 's':
       stopCapture();
       break;
+    case 'r':
+      forceReport();
+      break;
     case '\n':
     case '\r':
       break;  // fin de linea del monitor serie, no es una tecla
@@ -294,6 +365,7 @@ void setup() {
   logger::info("main", "listo - 'c' arranca captura de DATO, 's' la para y vuelca el CSV");
   logger::info("main", "0-9, * o # simulan esa tecla en el teclado real (cuidado, panel en vivo)");
   logger::info("main", "monitoreando estado de zonas en ventanas de 200ms");
+  logger::info("main", "'r' reenvia el ultimo estado (diagnostico de latencia de red)");
 }
 
 void loop() {

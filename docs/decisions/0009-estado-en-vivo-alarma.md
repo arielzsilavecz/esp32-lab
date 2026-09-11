@@ -53,6 +53,17 @@ que el portón, no un sistema aparte. Endpoints: `POST /api/device/estado` (disp
 backend, autenticado por token) y `GET /api/dispositivos/:id/estado` (página → backend,
 autenticado por sesión). La página distingue el layout por `tipo === 'alarma'`.
 
+**Conexión TLS mantenida tibia con un ping cada 45s.** Medido: Railway cierra la
+conexión ociosa a los **60s exactos**, y rehacer el handshake le cuesta a este ESP32
+**~1.9s** (2123ms el POST completo, contra 482ms la misma conexión desde una PC — la
+diferencia es criptografía por software). Un POST sobre una conexión ya abierta tarda
+**~250ms** (medido entre 229 y 306ms). Como entre cambio y cambio de zona pasan minutos
+u horas, sin mantener la conexión viva prácticamente *todo* reporte real pagaría el
+handshake: ~2.3s de punta a punta en vez de ~0.5s. La tarea de red hace un
+`GET /api/device/ping` (204, sin consultar la base) cada 45s, con margen sobre los 60s
+medidos. El costo en Railway es despreciable y queda en contexto: el ESP32 del portón ya
+hace 86.400 requests/día con consulta SQL incluida; esto agrega 1.920 sin consulta.
+
 **Actualización inmediata por Server-Sent Events (SSE).** Después de persistir un
 reporte, el backend lo publica a las conexiones abiertas en
 `GET /api/dispositivos/eventos`. La página mantiene una conexión `EventSource` y aplica
@@ -65,6 +76,13 @@ este canal es unidireccional (servidor → navegador); no hace falta WebSocket.
 - **Streaming de flancos crudos al backend, decodificar centralizado** — descartado: más
   infraestructura (WebSocket a través de Railway, más tráfico) para redecodificar algo
   que ya sabemos decodificar a bordo. No hay ninguna ventaja, solo más piezas móviles.
+- **Reanudación de sesión TLS (`WiFiClientSecure::setSession`) en vez del ping** — no
+  agrega tráfico, pero solo recorta parte del handshake: dejaría el reporte en ~1.2s
+  contra los ~0.25s del keep-warm. Se prefirió el ping porque el tráfico que evita es
+  irrelevante a esta escala y la mejora es 5x mayor.
+- **Achicar la ventana de captura para ganar latencia** — no: 200ms ya está cerca del
+  mínimo teórico de 143ms que garantiza una copia completa de la trama, y aporta ~100ms
+  promedio contra los ~1900ms que aporta atacar el handshake. Mal negocio.
 - **Reescribir `RfReceiver` como ring buffer continuo** — más "correcto" en abstracto,
   pero cambia una clase compartida ya validada en producción (portón) para un patrón de
   uso que nunca necesitó. El ciclo de captura corta ya alcanza para esta cadencia de

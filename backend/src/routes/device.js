@@ -7,6 +7,15 @@ export const deviceRouter = Router();
 
 deviceRouter.use(requireDeviceToken);
 
+// Mantiene viva la conexion TLS del dispositivo. Railway cierra los sockets
+// ociosos a los 60s exactos (medido) y rehacer el handshake le cuesta ~1.9s a
+// un ESP32, contra ~250ms de una request sobre una conexion ya abierta -- ver
+// ADR-0009. No consulta la base a proposito: el unico objetivo es que el
+// socket no muera, asi que conviene que sea lo mas barato posible.
+deviceRouter.get('/ping', (_req, res) => {
+  res.status(204).end();
+});
+
 // La ESP32 llama esto cada ~1s (ver ADR-0006 por que 1s no cambia el costo).
 deviceRouter.get('/comando-pendiente', async (req, res) => {
   const result = await pool.query(

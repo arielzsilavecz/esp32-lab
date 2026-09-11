@@ -22,7 +22,9 @@ si la encuentra, decodifica las 6 zonas y las manda al backend (mismo backend qu
 portón, ver ADR-0009). Se ve en la misma página que controla el portón. No decodifica
 ni expone nunca las teclas apretadas — ver ADR-0009 por qué importa. La captura y HTTPS
 corren en tareas separadas: mientras la red envía o reintenta un estado, el bus sigue
-siendo escuchado y una cola conserva siempre el estado más reciente.
+siendo escuchado y una cola conserva siempre el estado más reciente. La tarea de red
+manda además un ping cada 45s para que la conexión TLS no muera: sin eso cada reporte
+real pagaría ~1.9s de handshake (ver ADR-0009 para las mediciones).
 
 ## Uso — captura (RX)
 
