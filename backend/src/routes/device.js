@@ -13,7 +13,10 @@ deviceRouter.use(requireDeviceToken);
 // ADR-0009. No consulta la base a proposito: el unico objetivo es que el
 // socket no muera, asi que conviene que sea lo mas barato posible.
 deviceRouter.get('/ping', (_req, res) => {
-  res.status(204).end();
+  // Un body corto obliga al HTTPClient del ESP32 a consumir la respuesta
+  // completa antes de conservar el socket. Con 204 dejaba un socket TLS que
+  // en la siguiente request aparecia conectado, pero ya no era reutilizable.
+  res.status(200).type('text/plain').send('ok');
 });
 
 // La ESP32 llama esto cada ~1s (ver ADR-0006 por que 1s no cambia el costo).

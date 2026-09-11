@@ -45,9 +45,10 @@ class BackendClient {
   bool reportEstado(const String& estadoJson);
 
   // Request minima cuyo unico proposito es que el socket TLS no muera por
-  // inactividad: el backend responde 204 sin tocar la base. Sirve solo si se
-  // llama mas seguido que el timeout de conexion ociosa del hosting (60s en
-  // Railway, medido) -- ver ADR-0009. Devuelve false si la request fallo.
+  // inactividad: el backend responde 200 con un body minimo y sin tocar la
+  // base. Sirve solo si se llama mas seguido que el timeout de conexion
+  // ociosa del hosting (60s en Railway, medido) -- ver ADR-0009. Devuelve
+  // false si la request fallo.
   bool ping();
 
  private:

@@ -233,6 +233,10 @@ void keepConnectionWarm() {
 void reportZoneStatusTask(void*) {
   ZoneStatus pending{};
 
+  // Abrir la conexion al arrancar para que el primer cambio de zona no tenga
+  // que pagar el handshake TLS completo.
+  keepConnectionWarm();
+
   for (;;) {
     if (xQueueReceive(zoneStatusQueue, &pending, pdMS_TO_TICKS(kKeepWarmIntervalMs)) != pdTRUE) {
       keepConnectionWarm();

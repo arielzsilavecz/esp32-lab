@@ -87,7 +87,7 @@ bool BackendClient::ping() {
   const int status = http_.GET();
   if (status > 0) http_.getString();  // drena el body para poder reusar el socket
   http_.end();
-  return status == 204;
+  return status == 200;
 }
 
 bool BackendClient::reportEstado(const String& estadoJson) {

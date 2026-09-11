@@ -60,7 +60,7 @@ diferencia es criptografía por software). Un POST sobre una conexión ya abiert
 **~250ms** (medido entre 229 y 306ms). Como entre cambio y cambio de zona pasan minutos
 u horas, sin mantener la conexión viva prácticamente *todo* reporte real pagaría el
 handshake: ~2.3s de punta a punta en vez de ~0.5s. La tarea de red hace un
-`GET /api/device/ping` (204, sin consultar la base) cada 45s, con margen sobre los 60s
+`GET /api/device/ping` (200 con un body minimo) cada 45s, con margen sobre los 60s
 medidos. El costo en Railway es despreciable y queda en contexto: el ESP32 del portón ya
 hace 86.400 requests/día con consulta SQL incluida; esto agrega 1.920 sin consulta.
 
