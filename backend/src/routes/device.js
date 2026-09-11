@@ -60,10 +60,18 @@ deviceRouter.post('/estado', async (req, res) => {
     return res.status(400).json({ error: 'Falta "estado" en el body' });
   }
 
+  // Un solo statement para que el valor actual y su copia en el historial no
+  // puedan quedar desfasados: dispositivos.estado es el ultimo valor (lo que
+  // lee la pagina al cargar) y estados guarda cada reporte para el log.
   const result = await pool.query(
-    `UPDATE dispositivos SET estado = $1, estado_actualizado_at = now()
-     WHERE id = $2
-     RETURNING id, estado, estado_actualizado_at`,
+    `WITH actualizado AS (
+       UPDATE dispositivos SET estado = $1, estado_actualizado_at = now()
+       WHERE id = $2
+       RETURNING id, estado, estado_actualizado_at
+     )
+     INSERT INTO estados (dispositivo_id, estado, created_at)
+     SELECT id, estado, estado_actualizado_at FROM actualizado
+     RETURNING dispositivo_id AS id, estado, created_at AS estado_actualizado_at`,
     [estado, req.dispositivo.id]
   );
   publishDeviceState(result.rows[0]);

@@ -16,7 +16,8 @@
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "express-session": "^1.18.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "web-push": "^3.6.7"
   },
   "overrides": {
     "qs": "^6.16.0"

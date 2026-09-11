@@ -115,6 +115,87 @@ async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
   mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estado_actualizado_at);
 }
 
+// Se fija la zona horaria en vez de usar la del navegador: el log es de una
+// casa que esta en Argentina, y tiene que leerse igual desde cualquier lado.
+const TZ_AR = 'America/Argentina/Buenos_Aires';
+
+function etiquetaHoraAR(fechaIso) {
+  const fecha = new Date(fechaIso);
+  const dia = fecha.toLocaleDateString('es-AR',
+    { timeZone: TZ_AR, weekday: 'short', day: 'numeric', month: 'short' });
+  const hora = fecha.toLocaleTimeString('es-AR',
+    { timeZone: TZ_AR, hour: '2-digit', hour12: false });
+  return `${dia} · ${hora}:00`;
+}
+
+function horaExactaAR(fechaIso) {
+  return new Date(fechaIso).toLocaleTimeString('es-AR', { timeZone: TZ_AR, hour12: false });
+}
+
+// Cada fila del historial es un snapshot completo de las 6 zonas, asi que lo
+// que se muestra son las transiciones: se compara cada snapshot con el
+// inmediatamente anterior en el tiempo. El mas viejo del lote no tiene con
+// que compararse y queda afuera.
+function derivarEventos(snapshots) {
+  const eventos = [];
+
+  for (let i = 0; i < snapshots.length - 1; i++) {
+    const actual = snapshots[i].estado?.zonas ?? [];
+    const previo = snapshots[i + 1].estado?.zonas ?? [];
+
+    actual.forEach((activa, indice) => {
+      if (activa === previo[indice]) return;
+      eventos.push({ createdAt: snapshots[i].created_at, zona: indice + 1, activa });
+    });
+  }
+
+  return eventos;
+}
+
+function mostrarLogZonas(logEl, snapshots) {
+  const eventos = derivarEventos(snapshots);
+  logEl.innerHTML = '';
+
+  if (eventos.length === 0) {
+    logEl.textContent = 'Sin activaciones registradas todavia';
+    return;
+  }
+
+  let horaMostrada = null;
+  let lineas = null;
+
+  for (const evento of eventos) {
+    const etiqueta = etiquetaHoraAR(evento.createdAt);
+    if (etiqueta !== horaMostrada) {
+      horaMostrada = etiqueta;
+
+      const encabezado = document.createElement('div');
+      encabezado.className = 'log-hora';
+      encabezado.textContent = etiqueta;
+
+      lineas = document.createElement('div');
+      logEl.append(encabezado, lineas);
+    }
+
+    const hora = document.createElement('span');
+    hora.className = 'log-ts';
+    hora.textContent = horaExactaAR(evento.createdAt);
+
+    const texto = document.createElement('span');
+    texto.textContent = `Zona ${evento.zona} ${evento.activa ? 'activada' : 'en reposo'}`;
+
+    const linea = document.createElement('div');
+    linea.className = `log-linea ${evento.activa ? 'log-activa' : 'log-reposo'}`;
+    linea.append(hora, texto);
+    lineas.appendChild(linea);
+  }
+}
+
+async function cargarLogZonas(dispositivoId, logEl) {
+  const response = await api(`/api/dispositivos/${dispositivoId}/estados`);
+  mostrarLogZonas(logEl, await response.json());
+}
+
 function conectarEstadoEnVivo() {
   const events = new EventSource('/api/dispositivos/eventos');
 
@@ -124,6 +205,11 @@ function conectarEstadoEnVivo() {
     if (!view) return;
     mostrarEstadoZonas(view.zonasEl, view.actualizadoEl,
       update.estado, update.estado_actualizado_at);
+    // Se relee el log en vez de insertar la linea a mano: derivar la
+    // transicion aca obligaria a mantener el estado previo en el navegador, y
+    // los cambios de zona son lo bastante espaciados como para que una
+    // consulta mas no importe.
+    cargarLogZonas(update.id, view.logEl);
   });
 }
 
@@ -144,27 +230,33 @@ async function init() {
     nombre.className = 'nombre';
     nombre.textContent = dispositivo.nombre;
 
-    const tipo = document.createElement('div');
-    tipo.className = 'tipo';
-    tipo.textContent = dispositivo.tipo;
-
-    card.append(nombre, tipo);
-
     if (dispositivo.tipo === 'alarma') {
+      const tipo = document.createElement('div');
+      tipo.className = 'tipo';
+      tipo.textContent = dispositivo.tipo;
+
       const zonasEl = document.createElement('div');
       zonasEl.className = 'zonas';
       const actualizadoEl = document.createElement('div');
       actualizadoEl.className = 'historial';
+      const logEl = document.createElement('div');
+      logEl.className = 'log-zonas';
 
-      card.append(zonasEl, actualizadoEl);
+      card.append(nombre, tipo, zonasEl, actualizadoEl, logEl);
       listEl.appendChild(card);
 
-      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl });
+      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, logEl });
       cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl);
+      cargarLogZonas(dispositivo.id, logEl);
       setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl),
         ZONE_FALLBACK_REFRESH_MS);
       continue;
     }
+
+    // Dispositivos de accion (el porton): tarjeta compacta, con el nombre y el
+    // boton en la misma fila. Ocupaba media pantalla para algo que no se usa a
+    // diario, y empujaba el plano de la alarma fuera de la vista.
+    card.classList.add('compacto');
 
     const boton = document.createElement('button');
     boton.textContent = 'Activar';
@@ -174,7 +266,11 @@ async function init() {
 
     boton.addEventListener('click', () => activar(dispositivo.id, boton, historialEl));
 
-    card.append(boton, historialEl);
+    const fila = document.createElement('div');
+    fila.className = 'fila-compacta';
+    fila.append(nombre, boton);
+
+    card.append(fila, historialEl);
     listEl.appendChild(card);
 
     cargarHistorial(dispositivo.id, historialEl);

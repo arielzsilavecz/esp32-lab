@@ -70,6 +70,24 @@ dispositivosRouter.get('/:id/estado', async (req, res) => {
   res.json(result.rows[0]);
 });
 
+// Snapshots historicos de lo que fue reportando el dispositivo, mas nuevo
+// primero. Devuelve el estado crudo: que una zona "se activo" es una
+// transicion entre dos snapshots, y derivarla es trabajo de la pagina -- el
+// backend sigue sin saber que es una zona (mismo criterio que ADR-0006).
+dispositivosRouter.get('/:id/estados', async (req, res) => {
+  const { id } = req.params;
+  const limite = Math.min(Number(req.query.limit) || 100, 500);
+
+  const result = await pool.query(
+    `SELECT estado, created_at FROM estados
+     WHERE dispositivo_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [id, limite]
+  );
+  res.json(result.rows);
+});
+
 // Ultimas activaciones de un dispositivo, con quien y cuando -- el registro
 // de auditoria que motivo elegir cuentas reales en vez de un token compartido.
 dispositivosRouter.get('/:id/historial', async (req, res) => {

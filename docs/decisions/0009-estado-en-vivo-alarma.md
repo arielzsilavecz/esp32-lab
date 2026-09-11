@@ -42,11 +42,14 @@ error. Importa porque esta página es deliberadamente accesible desde fuera de l
 casa (ese es su propósito, ver ADR-0006): un log o vista en vivo de teclas presionadas
 sería exponer la clave del sistema de seguridad a quien vea la página.
 
-**Estado genérico en `dispositivos`, no una tabla de historial.** Columnas
-`estado JSONB` + `estado_actualizado_at`, igual criterio que `dispositivos.tipo`: sin
-shape fijo, cualquier tipo de dispositivo futuro puede reportar lo que le sirva. No es
-una tabla de eventos (`comandos` sí lo es, con motivo de auditoría real) porque acá solo
-interesa el último valor, no quién lo cambió.
+**Estado genérico en `dispositivos`.** Columnas `estado JSONB` +
+`estado_actualizado_at`, igual criterio que `dispositivos.tipo`: sin shape fijo,
+cualquier tipo de dispositivo futuro puede reportar lo que le sirva.
+
+**Historial en una tabla aparte `estados`** (agregado después — ver "Revisión" al final).
+Cada reporte se guarda además como un snapshot completo, y `dispositivos.estado` queda
+como el valor actual para no tener que consultar el último snapshot en cada carga. Las
+dos escrituras van en un solo statement (CTE) para que no puedan quedar desfasadas.
 
 **Alarma es un dispositivo más de `dispositivos`**, con su propio token — mismo modelo
 que el portón, no un sistema aparte. Endpoints: `POST /api/device/estado` (dispositivo →
@@ -88,8 +91,13 @@ este canal es unidireccional (servidor → navegador); no hace falta WebSocket.
   uso que nunca necesitó. El ciclo de captura corta ya alcanza para esta cadencia de
   cambio de estado.
 - **Tabla de historial de estados en vez de un campo en `dispositivos`** — se descartó
-  por ahora: no hay necesidad de auditoría de zonas (a diferencia de `comandos`, donde sí
-  importa quién activó el portón). Si aparece esa necesidad, es un cambio aislado.
+  en la primera versión por no haber necesidad de auditoría de zonas (a diferencia de
+  `comandos`, donde sí importa quién activó el portón). Esa necesidad apareció enseguida
+  y la decisión se revirtió; ver "Revisión" abajo.
+- **Guardar un evento por zona (`zona`, `activa`) en vez de snapshots completos** — la
+  tabla quedaría más fácil de leer, pero le mete al esquema el concepto de "zona", que es
+  específico de la alarma. Se guardan snapshots genéricos y la transición se deriva en la
+  página, que es la única capa que ya sabe qué es una zona.
 
 ## Consecuencias
 
@@ -102,3 +110,21 @@ este canal es unidireccional (servidor → navegador); no hace falta WebSocket.
   `Secrets.h` local (gitignored) con el token que imprime el seed.
 - El intento de escritura (ADR-0008) queda documentado tal cual, sin revertir: el
   circuito y el driver siguen en el repo por si se retoma, pero no se usan.
+
+## Revisión (2026-09-10): se agrega historial
+
+La decisión original de guardar **solo** el último estado quedó corta apenas se quiso ver
+un log de activaciones por hora. Se agregó la tabla `estados`
+(`backend/migrations/004_historial_estados.sql`): un snapshot JSONB por reporte, con
+índice por `(dispositivo_id, created_at DESC)`, que es la única consulta que se hace.
+
+- **El historial arranca vacío.** No hay forma de reconstruir lo anterior: hasta ahora
+  cada reporte pisaba al anterior.
+- **Las transiciones se derivan en la página**, comparando cada snapshot con el anterior
+  en el tiempo. El backend sigue sin saber qué es una zona.
+- **Hora argentina fijada explícitamente** (`America/Argentina/Buenos_Aires`) al formatear,
+  no la del navegador: el log es de una casa que está en Argentina y tiene que leerse
+  igual desde cualquier lado. La base sigue guardando `TIMESTAMPTZ` absoluto.
+- **Sin política de retención todavía.** A razón de unos cientos de filas por día esto
+  tarda años en ser un problema en Postgres; si alguna vez molesta, borrar por
+  `created_at` es un cambio aislado.
