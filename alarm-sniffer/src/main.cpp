@@ -1,16 +1,16 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_attr.h>  // IRAM_ATTR
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
 #include "BackendClient.h"
-#include "DatoTransmitter.h"
 #include "DigitalPin.h"
 #include "Logger.h"
 #include "RfReceiver.h"
+#include "RfTransmitter.h"
 #include "Secrets.h"
-#include "XanaesProtocol.h"
 #include "XanaesZoneDecoder.h"
 
 namespace {
@@ -20,22 +20,56 @@ namespace {
 constexpr uint8_t kDataPin = 34;
 constexpr uint8_t kLedPin = 2;
 
-// GPIO27: no es pin de strapping, es bidireccional (no solo-entrada como el
-// 34), y ya tiene un pull-down externo de 10k a GND en el cableado real para
-// que el transistor quede cortado si el pin flota durante el boot del ESP32
-// -- ver ADR-0008 y la explicacion de circuito dada al usuario.
-constexpr uint8_t kDatoTxPin = 27;
+// GPIO25: salida completa, no es pin de strapping. DATA del FS1000A para
+// abrir el porton (control Garen) -- ver docs/hardware/fs1000a-wiring.md.
+constexpr uint8_t kRfTransmitterPin = 25;
 
-// Cooldown minimo entre transmisiones: evita que un doble caracter llegado
-// por serial (o alguien manteniendo apretada una tecla en la terminal)
-// dispare dos pulsaciones simuladas seguidas sobre un panel de seguridad
-// real. No es una limitacion del protocolo, es prudencia de operador.
-constexpr uint32_t kDatoTxCooldownMs = 500;
+// GPIO4: no es pin de strapping y esta libre en esta placa. GPIO0 (el que usa
+// el boton BOOT en el firmware original del porton) no esta expuesto en el
+// header de este DevKit de 38 pines -- confirmado con multimetro, sin
+// continuidad en ningun pin del header al apretar BOOT.
+constexpr uint8_t kTriggerButtonPin = 4;
+
+// Mismo criterio que el porton actual (firmware/lib/config/Config.h): el
+// control es de boton unico con ciclo abrir->parar->cerrar, asi que una
+// segunda pulsacion accidental frena la hoja a mitad de camino en vez de
+// repetir la orden. No es una proteccion contra spam, es un requisito
+// funcional del control.
+constexpr uint32_t kTriggerCooldownMs = 3000;
+
+// Conocimiento especifico del control Garen medido el 2026-08-15 -- capa de
+// aplicacion, no del driver. Copiado tal cual de firmware/src/main.cpp: ver
+// docs/captures/garen-boton-2026-08-15-fijo-vs-rolling.md.
+constexpr rf::PwmTiming kGarenTiming{
+    /*syncHighUs=*/413,
+    /*oneLowUs=*/1022,
+    /*oneHighUs=*/407,
+    /*zeroLowUs=*/545,
+    /*zeroHighUs=*/884,
+    /*gapUs=*/11136,
+};
+constexpr uint32_t kGarenCode = 0x1EDD855;  // 0001111011011101100001010101
+constexpr uint8_t kGarenBitCount = 28;
+constexpr uint8_t kGarenRepetitions = 10;  // el control original manda ~14
 
 hardware::DigitalPin led(kLedPin, hardware::DigitalPin::Mode::Output);
+hardware::DigitalPin triggerButton(kTriggerButtonPin, hardware::DigitalPin::Mode::InputPullup);
+rf::RfTransmitter rfTransmitter(kRfTransmitterPin, kGarenTiming);
 
-dato::DatoTransmitter datoTx(kDatoTxPin, dato::PulseWidthTiming{80, 160});
-uint32_t lastDatoTxMs = 0;
+// Por interrupcion, no por sondeo: pollStatusCycle() bloquea el loop() ~200ms
+// por vuelta (la ventana de captura de DATO, encadenada sin pausa), asi que
+// una lectura de nivel del boton en el loop principal puede no coincidir con
+// una pulsacion corta -- con dos pulsadores en serie (hay que apretar los dos
+// a la vez) el solape real de ambos contactos puede durar menos que eso. Una
+// interrupcion en el flanco no depende de cuando el loop() llega a mirar el
+// pin: se latchea en el instante exacto, sin importar que tan ocupado este.
+volatile bool triggerButtonEdgePending = false;
+
+void IRAM_ATTR onTriggerButtonPressed() {
+  triggerButtonEdgePending = true;
+}
+
+uint32_t lastTriggerMs = 0;
 
 // RfReceiver no tiene nada de especifico a RF en su implementacion: captura
 // flancos de CUALQUIER pin digital por interrupcion, con timestamp y nivel.
@@ -48,6 +82,14 @@ uint32_t lastHeartbeatMs = 0;
 constexpr uint32_t kHeartbeatIntervalMs = 1000;
 
 net::BackendClient backendClient(secrets::kBackendUrl, secrets::kAlarmDeviceToken);
+
+// Cliente aparte para el porton, autenticado con SU token (no el de la
+// alarma): son dos identidades de dispositivo distintas del lado del
+// backend (dos filas en `dispositivos`), aunque compartan el mismo ESP32
+// fisico -- mismo modelo generico de ADR-0006, no hace falta fusionarlas.
+net::BackendClient portonBackendClient(secrets::kBackendUrl, secrets::kDeviceToken);
+uint32_t lastPortonPollMs = 0;
+constexpr uint32_t kPortonPollIntervalMs = 1000;
 
 struct ZoneStatus {
   bool zones[xanaes::kZoneCount];
@@ -125,30 +167,66 @@ void pollHeartbeat() {
   Serial.println("... capturando, todavia no se recibio 's'");
 }
 
-// Simula apretar `key` en el teclado real, escribiendo la trama sobre DATO.
-// Ver docs/decisions/0008-transmisor-dato.md -- el transistor esta cableado
-// directo al bus real del panel, esto no es un ensayo de banco.
-void sendKey(char key) {
-  const int16_t code = xanaes::keyCode(key);
-  if (code < 0) {
-    logger::warn("main", "tecla no soportada");
-    return;
-  }
-
-  const uint32_t now = millis();
-  if (now - lastDatoTxMs < kDatoTxCooldownMs) {
-    logger::warn("main", "cooldown de transmision, espera un momento");
-    return;
-  }
-  lastDatoTxMs = now;
-
-  logger::info("main", "enviando tecla por DATO");
-  datoTx.send(xanaes::buildKeyFrame(static_cast<uint8_t>(code)), xanaes::kKeyFrameBitCount);
+void runTransmit() {
+  logger::info("main", "transmitiendo trama Garen");
+  led.write(true);
+  rfTransmitter.send(kGarenCode, kGarenBitCount, kGarenRepetitions);
+  led.write(false);
+  logger::info("main", "transmision terminada");
 }
 
-// No bloquea para siempre si el WiFi no esta disponible: captura manual y
-// comandos por serial tienen que seguir andando sin red. Mismo criterio que
-// firmware/src/main.cpp.
+// El ESP32 como control remoto: apretar el pulsador local dispara la trama.
+// El flanco lo captura la interrupcion (ver onTriggerButtonPressed), no una
+// lectura de nivel aca -- evita perder la pulsacion si el loop() esta
+// bloqueado en pollStatusCycle() en el momento exacto del apriete. El rebote
+// mecanico del contacto puede disparar la interrupcion varias veces por una
+// sola pulsacion real, pero como solo prende un flag (idempotente) y el
+// cooldown bloquea reenvios, no hace falta debounce aparte.
+void pollTriggerButton() {
+  if (!triggerButtonEdgePending) return;
+  triggerButtonEdgePending = false;
+
+  const uint32_t now = millis();
+  if (now - lastTriggerMs >= kTriggerCooldownMs) {
+    runTransmit();
+    lastTriggerMs = millis();
+  } else {
+    logger::warn("main", "pulsacion ignorada: en cooldown");
+  }
+}
+
+// Polling saliente al backend para comandos del porton (ver backend/,
+// ADR-0006): bloqueante durante el round-trip HTTPS, mismo criterio que
+// firmware/src/main.cpp. A diferencia del reporte de zonas, este poll es tan
+// seguido (1s) que la conexion nunca llega a estar ociosa el tiempo
+// suficiente como para necesitar un keep-warm aparte -- se mantiene tibia
+// sola.
+void pollPortonCommand() {
+  const uint32_t now = millis();
+  if (now - lastPortonPollMs < kPortonPollIntervalMs) return;
+  lastPortonPollMs = now;
+
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  const net::PendingCommand command = portonBackendClient.pollPendingCommand();
+  if (!command.present) return;
+
+  // Mismo criterio que pollTriggerButton(): un comando que llega en cooldown
+  // se descarta, no se encola para mas tarde -- se confirma igual para que
+  // no vuelva a aparecer en el proximo poll.
+  if (now - lastTriggerMs < kTriggerCooldownMs) {
+    logger::warn("main", "comando del backend ignorado: en cooldown");
+  } else {
+    runTransmit();
+    lastTriggerMs = millis();
+  }
+
+  portonBackendClient.acknowledge(command.id);
+}
+
+// No bloquea para siempre si el WiFi no esta disponible: captura manual,
+// boton local y comandos por serial tienen que seguir andando sin red.
+// Mismo criterio que firmware/src/main.cpp.
 void connectWiFi() {
   logger::info("main", "conectando WiFi");
   WiFi.mode(WIFI_STA);
@@ -162,7 +240,7 @@ void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     logger::info("main", "WiFi conectado");
   } else {
-    logger::warn("main", "WiFi no conecto - sigue la captura/serial, sin reporte de estado");
+    logger::warn("main", "WiFi no conecto - sigue captura/serial/boton local, sin backend");
   }
 }
 
@@ -301,9 +379,9 @@ void forceReport() {
 }
 
 // Ciclo automatico de estado: corre solo, sin intervencion, en paralelo a
-// los comandos manuales por serial ('c'/'s'/teclas). Se salta a si mismo
-// mientras haya una captura manual en curso -- RfReceiver no soporta dos
-// sesiones de captura superpuestas.
+// los comandos manuales por serial ('c'/'s') y al control del porton. Se
+// salta a si mismo mientras haya una captura manual en curso -- RfReceiver no
+// soporta dos sesiones de captura superpuestas.
 void pollStatusCycle() {
   if (capturing) return;
 
@@ -340,11 +418,14 @@ void pollSerialCommand() {
     case 'r':
       forceReport();
       break;
+    case 't':
+      runTransmit();
+      lastTriggerMs = millis();  // el cooldown tambien aplica al comando serial
+      break;
     case '\n':
     case '\r':
       break;  // fin de linea del monitor serie, no es una tecla
     default:
-      sendKey(static_cast<char>(incoming));
       break;
   }
 }
@@ -354,7 +435,12 @@ void pollSerialCommand() {
 void setup() {
   logger::begin(115200);
   led.begin();
-  datoTx.begin();
+  triggerButton.begin();
+  // FALLING porque el pulsador es activo en bajo (pull-up interno, el boton
+  // lleva el pin a GND). attachInterrupt() en vez de RfReceiver: ahi hace
+  // falta timestamp y buffer de flancos, aca solo un flag booleano.
+  attachInterrupt(digitalPinToInterrupt(kTriggerButtonPin), onTriggerButtonPressed, FALLING);
+  rfTransmitter.begin();
   connectWiFi();
 
   zoneStatusQueue = xQueueCreate(1, sizeof(ZoneStatus));
@@ -367,7 +453,7 @@ void setup() {
   // explicita y sin duracion predefinida: no sabemos cuanto tarda alguien en
   // caminar hasta el teclado real y apretar la tecla. 'c' arranca, 's' para.
   logger::info("main", "listo - 'c' arranca captura de DATO, 's' la para y vuelca el CSV");
-  logger::info("main", "0-9, * o # simulan esa tecla en el teclado real (cuidado, panel en vivo)");
+  logger::info("main", "boton local (GPIO4), la app, o 't' por serial abren el porton");
   logger::info("main", "monitoreando estado de zonas en ventanas de 200ms");
   logger::info("main", "'r' reenvia el ultimo estado (diagnostico de latencia de red)");
 }
@@ -375,6 +461,8 @@ void setup() {
 void loop() {
   pollSerialCommand();
   pollHeartbeat();
+  pollTriggerButton();
+  pollPortonCommand();
   pollStatusCycle();
   delay(10);
 }
