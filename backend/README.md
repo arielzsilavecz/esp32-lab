@@ -9,7 +9,8 @@ cada decision de esta carpeta.
 ## Como funciona
 
 - **Personas** (navegador): login con email/password (bcrypt + cookie de sesion),
-  ven los dispositivos y les mandan comandos ("Activar").
+  ven los dispositivos y les mandan comandos ("Activar"). Abrir el porton exige
+  ademas una credencial WebAuthn del telefono o PC (huella, rostro o PIN del sistema).
 - **Dispositivos** (ESP32, etc.): autenticados por un token propio
   (`Authorization: Bearer <token>`), hacen polling a `GET /api/device/comando-pendiente`
   y confirman con `POST /api/device/comando/:id/consumido`. No usan sesion/cookie.
@@ -49,7 +50,12 @@ Para habilitar las notificaciones tambien hay que ejecutar una vez:
 ```
 npm run migrate -- 005_push_subscriptions.sql
 npm run migrate -- 006_notification_schedules.sql
+npm run migrate -- 007_webauthn_credentials.sql
 ```
+
+WebAuthn toma automaticamente el dominio y origen de cada request. En produccion se
+pueden fijar explicitamente con `WEBAUTHN_RP_ID` (solo hostname) y `WEBAUTHN_ORIGIN`
+(URL HTTPS completa), especialmente si hay mas de un dominio apuntando al servicio.
 
 ## Limitaciones conocidas, a proposito
 

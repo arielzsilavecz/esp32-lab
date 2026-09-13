@@ -33,17 +33,130 @@ function formatoRelativo(fechaIso) {
   return new Date(fechaIso).toLocaleDateString('es-AR');
 }
 
+function base64UrlABuffer(valor) {
+  const base64 = valor.replace(/-/g, '+').replace(/_/g, '/');
+  const binario = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+  return Uint8Array.from(binario, (caracter) => caracter.charCodeAt(0));
+}
+
+function bufferABase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binario = '';
+  for (const byte of bytes) binario += String.fromCharCode(byte);
+  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function opcionesRegistroParaNavegador(options) {
+  return {
+    ...options,
+    challenge: base64UrlABuffer(options.challenge),
+    user: { ...options.user, id: base64UrlABuffer(options.user.id) },
+    excludeCredentials: (options.excludeCredentials ?? []).map((credencial) => ({
+      ...credencial,
+      id: base64UrlABuffer(credencial.id),
+    })),
+  };
+}
+
+function opcionesAutenticacionParaNavegador(options) {
+  return {
+    ...options,
+    challenge: base64UrlABuffer(options.challenge),
+    allowCredentials: (options.allowCredentials ?? []).map((credencial) => ({
+      ...credencial,
+      id: base64UrlABuffer(credencial.id),
+    })),
+  };
+}
+
+function serializarCredencial(credencial) {
+  const response = credencial.response;
+  const respuesta = {
+    clientDataJSON: bufferABase64Url(response.clientDataJSON),
+  };
+
+  if ('attestationObject' in response) {
+    respuesta.attestationObject = bufferABase64Url(response.attestationObject);
+    respuesta.transports = response.getTransports?.() ?? [];
+  } else {
+    respuesta.authenticatorData = bufferABase64Url(response.authenticatorData);
+    respuesta.signature = bufferABase64Url(response.signature);
+    respuesta.userHandle = response.userHandle ? bufferABase64Url(response.userHandle) : undefined;
+  }
+
+  return {
+    id: credencial.id,
+    rawId: bufferABase64Url(credencial.rawId),
+    type: credencial.type,
+    authenticatorAttachment: credencial.authenticatorAttachment,
+    clientExtensionResults: credencial.getClientExtensionResults(),
+    response: respuesta,
+  };
+}
+
+async function exigirRespuestaExitosa(response) {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'La operacion fallo');
+  return body;
+}
+
+async function registrarBiometria(dispositivoId) {
+  const options = await exigirRespuestaExitosa(await api('/api/webauthn/registro/opciones', {
+    method: 'POST',
+    body: JSON.stringify({ dispositivoId }),
+  }));
+  const credential = await navigator.credentials.create({
+    publicKey: opcionesRegistroParaNavegador(options),
+  });
+  if (!credential) throw new Error('No se creo la credencial');
+
+  await exigirRespuestaExitosa(await api('/api/webauthn/registro/verificar', {
+    method: 'POST',
+    body: JSON.stringify({ dispositivoId, credential: serializarCredencial(credential) }),
+  }));
+}
+
+async function verificarBiometria(dispositivoId) {
+  if (!window.PublicKeyCredential || !navigator.credentials) {
+    throw new Error('Este navegador no admite verificacion biometrica');
+  }
+
+  const optionsResponse = await api('/api/webauthn/autenticacion/opciones', {
+    method: 'POST',
+    body: JSON.stringify({ dispositivoId }),
+  });
+  if (optionsResponse.status === 409) {
+    await registrarBiometria(dispositivoId);
+    return;
+  }
+
+  const options = await exigirRespuestaExitosa(optionsResponse);
+  const credential = await navigator.credentials.get({
+    publicKey: opcionesAutenticacionParaNavegador(options),
+  });
+  if (!credential) throw new Error('No se verifico la identidad');
+
+  await exigirRespuestaExitosa(await api('/api/webauthn/autenticacion/verificar', {
+    method: 'POST',
+    body: JSON.stringify({ dispositivoId, credential: serializarCredencial(credential) }),
+  }));
+}
+
 async function activar(dispositivoId, boton, historialEl) {
   boton.disabled = true;
   const textoOriginal = boton.textContent;
-  boton.textContent = 'Enviando...';
+  boton.textContent = 'Verificando...';
 
   try {
-    await api(`/api/dispositivos/${dispositivoId}/comandos`, { method: 'POST' });
+    await verificarBiometria(dispositivoId);
+    boton.textContent = 'Enviando...';
+    await exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/comandos`, {
+      method: 'POST',
+    }));
     boton.textContent = 'Enviado';
     await cargarHistorial(dispositivoId, historialEl);
-  } catch {
-    boton.textContent = 'Error, reintentar';
+  } catch (error) {
+    boton.textContent = error.name === 'NotAllowedError' ? 'Cancelado' : 'Error, reintentar';
   } finally {
     setTimeout(() => {
       boton.disabled = false;

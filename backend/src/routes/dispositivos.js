@@ -42,9 +42,19 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
   const { id } = req.params;
   const tipoComando = req.body?.tipo_comando || 'activar';
 
-  const dispositivo = await pool.query('SELECT id FROM dispositivos WHERE id = $1', [id]);
+  const dispositivo = await pool.query('SELECT id, tipo FROM dispositivos WHERE id = $1', [id]);
   if (dispositivo.rowCount === 0) {
     return res.status(404).json({ error: 'Dispositivo no encontrado' });
+  }
+
+  if (dispositivo.rows[0].tipo === 'porton' && tipoComando === 'activar') {
+    const autorizacion = req.session.portonAuthorization;
+    delete req.session.portonAuthorization;
+    if (!autorizacion
+        || autorizacion.dispositivoId !== String(id)
+        || autorizacion.expiresAt < Date.now()) {
+      return res.status(403).json({ error: 'Se requiere verificacion biometrica' });
+    }
   }
 
   const result = await pool.query(

@@ -8,6 +8,7 @@ import { authRouter } from './routes/auth.js';
 import { dispositivosRouter } from './routes/dispositivos.js';
 import { deviceRouter } from './routes/device.js';
 import { notificationsRouter } from './routes/notifications.js';
+import { webauthnRouter } from './routes/webauthn.js';
 import { iniciarRetencion } from './retencion.js';
 
 dotenv.config();
@@ -27,6 +28,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/dispositivos', dispositivosRouter);
 app.use('/api/device', deviceRouter);
 app.use('/api/notificaciones', notificationsRouter);
+app.use('/api/webauthn', webauthnRouter);
 
 // Un solo proceso sirve API + frontend estatico -- ver ADR-0006 por que no
 // hay un Vercel aparte.
