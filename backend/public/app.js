@@ -106,7 +106,7 @@ function crearPlanoZonas(zonas) {
   return plano;
 }
 
-function mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estadoActualizadoAt) {
+function mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estadoActualizadoAt) {
   const zonas = estado?.zonas;
 
   zonasEl.innerHTML = '';
@@ -115,12 +115,21 @@ function mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estadoActualizadoAt)
   actualizadoEl.textContent = estadoActualizadoAt
     ? `Ultimo cambio reportado ${formatoRelativo(estadoActualizadoAt)}`
     : 'Esperando al dispositivo...';
+
+  // temperaturaC es la lectura interna del die del ESP32 (no calibrada, no es
+  // la temperatura ambiente del gabinete) -- ver ADR-0009. Se oculta el
+  // renglon en vez de mostrar "undefined" si el dispositivo todavia no la
+  // reporto (p. ej. antes del primer heartbeat tras el arranque).
+  temperaturaEl.hidden = estado?.temperaturaC === undefined;
+  if (!temperaturaEl.hidden) {
+    temperaturaEl.textContent = `Temp. interna ESP32: ${estado.temperaturaC.toFixed(1)}°C`;
+  }
 }
 
-async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl) {
+async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl, temperaturaEl) {
   const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
   const { estado, estado_actualizado_at } = await response.json();
-  mostrarEstadoZonas(zonasEl, actualizadoEl, estado, estado_actualizado_at);
+  mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estado_actualizado_at);
 }
 
 function base64UrlToUint8Array(value) {
@@ -465,7 +474,7 @@ function conectarEstadoEnVivo() {
     const update = JSON.parse(event.data);
     const view = zoneViews.get(String(update.id));
     if (!view) return;
-    mostrarEstadoZonas(view.zonasEl, view.actualizadoEl,
+    mostrarEstadoZonas(view.zonasEl, view.actualizadoEl, view.temperaturaEl,
       update.estado, update.estado_actualizado_at);
     // Se relee el log en vez de insertar la linea a mano: derivar la
     // transicion aca obligaria a mantener el estado previo en el navegador, y
@@ -497,17 +506,19 @@ async function init() {
       zonasEl.className = 'zonas';
       const actualizadoEl = document.createElement('div');
       actualizadoEl.className = 'historial';
+      const temperaturaEl = document.createElement('div');
+      temperaturaEl.className = 'historial';
       const logEl = document.createElement('div');
       logEl.className = 'log-zonas';
 
       const notificationControl = crearControlNotificaciones();
-      card.append(nombre, notificationControl, zonasEl, actualizadoEl, logEl);
+      card.append(nombre, notificationControl, zonasEl, actualizadoEl, temperaturaEl, logEl);
       listEl.appendChild(card);
 
-      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, logEl });
-      cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl);
+      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl });
+      cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl);
       cargarLogZonas(dispositivo.id, logEl);
-      setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl),
+      setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl),
         ZONE_FALLBACK_REFRESH_MS);
       continue;
     }

@@ -93,6 +93,7 @@ constexpr uint32_t kPortonPollIntervalMs = 1000;
 
 struct ZoneStatus {
   bool zones[xanaes::kZoneCount];
+  float temperaturaC;
 };
 
 // La captura no puede detenerse mientras HTTPS responde: una zona puede
@@ -267,13 +268,13 @@ void logNetworkTiming(const String& what, uint32_t startMs) {
   logger::info("main", msg.c_str());
 }
 
-bool reportZoneStatus(const bool zones[xanaes::kZoneCount]) {
+bool reportZoneStatus(const ZoneStatus& status) {
   String json = "{\"zonas\":[";
   for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) {
     if (i > 0) json += ",";
-    json += zones[i] ? "true" : "false";
+    json += status.zones[i] ? "true" : "false";
   }
-  json += "]}";
+  json += "],\"temperaturaC\":" + String(status.temperaturaC, 1) + "}";
 
   const uint32_t startMs = millis();
   const bool ok = backendClient.reportEstado(json);
@@ -328,7 +329,7 @@ void reportZoneStatusTask(void*) {
       ZoneStatus newer{};
       if (xQueueReceive(zoneStatusQueue, &newer, 0) == pdTRUE) pending = newer;
 
-      if (WiFi.status() == WL_CONNECTED && reportZoneStatus(pending.zones)) {
+      if (WiFi.status() == WL_CONNECTED && reportZoneStatus(pending)) {
         break;
       }
 
@@ -344,6 +345,10 @@ void enqueueZoneStatus(const bool zones[xanaes::kZoneCount]) {
   ZoneStatus status{};
   for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) status.zones[i] = zones[i];
 
+  // El "cambio" que decide si vale la pena un reporte sigue siendo solo de
+  // zonas: la temperatura va de paso en el mismo JSON (ver ADR-0009), pero no
+  // debe disparar un reporte por si sola -- para eso esta el heartbeat de
+  // pollTemperatureHeartbeat().
   if (hasLastQueuedStatus) {
     bool changed = false;
     for (uint8_t i = 0; i < xanaes::kZoneCount; ++i) {
@@ -355,6 +360,7 @@ void enqueueZoneStatus(const bool zones[xanaes::kZoneCount]) {
     if (!changed) return;
   }
 
+  status.temperaturaC = temperatureRead();
   lastQueuedStatus = status;
   hasLastQueuedStatus = true;
   xQueueOverwrite(zoneStatusQueue, &status);
@@ -375,6 +381,33 @@ void forceReport() {
   if (zoneStatusQueue == nullptr) return;
 
   logger::info("main", "reenviando ultimo estado conocido (diagnostico)");
+  lastQueuedStatus.temperaturaC = temperatureRead();
+  xQueueOverwrite(zoneStatusQueue, &lastQueuedStatus);
+}
+
+// temperatureRead() es el sensor interno del die del ESP32 -- no documentado
+// oficialmente por Espressif ni calibrado de fabrica (pensado para calibrar
+// el sensor Hall), y se distorsiona con la actividad de radio propia del
+// chip. Sirve como indicador de tendencia relativa, no como temperatura
+// ambiente real del gabinete -- para eso hace falta un sensor externo
+// (DS18B20/NTC) que todavia no esta instalado.
+//
+// El reporte de zonas solo sale cuando una zona cambia (puede haber horas de
+// diferencia entre uno y otro), asi que sin este heartbeat la temperatura
+// mostrada en la pagina quedaria pegada al valor del ultimo evento en vez de
+// reflejar la tendencia termica real durante un dia caluroso.
+constexpr uint32_t kTempHeartbeatMs = 15 * 60 * 1000;
+uint32_t lastTempHeartbeatMs = 0;
+
+void pollTemperatureHeartbeat() {
+  if (!hasLastQueuedStatus) return;
+  if (zoneStatusQueue == nullptr) return;
+
+  const uint32_t now = millis();
+  if (now - lastTempHeartbeatMs < kTempHeartbeatMs) return;
+  lastTempHeartbeatMs = now;
+
+  lastQueuedStatus.temperaturaC = temperatureRead();
   xQueueOverwrite(zoneStatusQueue, &lastQueuedStatus);
 }
 
@@ -456,6 +489,7 @@ void setup() {
   logger::info("main", "boton local (GPIO4), la app, o 't' por serial abren el porton");
   logger::info("main", "monitoreando estado de zonas en ventanas de 200ms");
   logger::info("main", "'r' reenvia el ultimo estado (diagnostico de latencia de red)");
+  logger::info("main", "temperatura interna del ESP32 se reporta junto al estado de zonas");
 }
 
 void loop() {
@@ -464,5 +498,6 @@ void loop() {
   pollTriggerButton();
   pollPortonCommand();
   pollStatusCycle();
+  pollTemperatureHeartbeat();
   delay(10);
 }

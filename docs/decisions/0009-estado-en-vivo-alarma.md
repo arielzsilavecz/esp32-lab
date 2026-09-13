@@ -133,3 +133,35 @@ un log de activaciones por hora. Se agregó la tabla `estados`
   necesario por espacio — medido, cada fila ocupa ~130 bytes contando índice, así que
   aun a 500 reportes diarios son ~24 MB al año — sino para que el historial no crezca
   sin límite sin que nadie lo mire.
+
+## Revisión (2026-09-13): temperatura del ESP32 en el mismo estado
+
+Al montar el alarm-sniffer en su gabinete definitivo (junto al teclado, alimentado desde
+el riel de 12V del panel — ver ADR sobre consolidación con el control del portón),
+preocupa el calor acumulado en días calurosos con varios componentes juntos en una caja
+metálica. Primer paso de visibilidad, sin agregar hardware: se suma `temperaturaC` al
+mismo JSON de `estado` que ya reporta las zonas (`{"zonas":[...],"temperaturaC":41.3}`),
+reusando el endpoint y el schema JSONB existentes — sin migración ni endpoint nuevo.
+
+- **Es `temperatureRead()`, el sensor interno del die del ESP32** — no documentado
+  oficialmente por Espressif (pensado originalmente para calibrar el sensor Hall) y sin
+  calibración de fábrica: el offset varía entre unidades y se distorsiona con la
+  actividad de radio propia del chip (WiFi TX calienta el die localmente). Sirve como
+  indicador de tendencia relativa, **no** como temperatura ambiente real del gabinete.
+  Cuando se necesite un número confiable del aire dentro de la caja, hace falta un
+  sensor externo (DS18B20 o NTC) — pendiente, no instalado todavía.
+- **Heartbeat propio de 15 minutos** (`pollTemperatureHeartbeat()`), independiente del
+  reporte de zonas: como el reporte solo sale cuando una zona cambia (pueden pasar
+  horas), sin este heartbeat la temperatura mostrada quedaría pegada al valor del
+  último evento en vez de reflejar la tendencia térmica real. Reenvía el último estado
+  de zonas conocido con una lectura fresca, por la misma cola de un elemento que ya
+  usa `forceReport()` — no es un mecanismo nuevo, es el mismo camino con otro disparador.
+  Antes de que se conozca el primer estado de zonas (recién arrancado) no hay heartbeat:
+  el primer reporte real de zonas ya lo dispara.
+- **La temperatura no participa en la deduplicación por cambio de zona**: agregarla
+  habría disparado un reporte de red en cada pequeña fluctuación térmica, contra el
+  criterio ya establecido de reportar solo lo que importa mostrar de inmediato.
+- **Se muestra en la misma tarjeta de la página** (`backend/public/app.js`), oculta
+  hasta el primer reporte que la incluya, sin umbral de alerta ni color de advertencia:
+  al no estar calibrada, fijar un número de "peligro" sería falsa precisión. La lectura
+  cruda alcanza para que el usuario juzgue la tendencia.
