@@ -1,9 +1,12 @@
 self.addEventListener('push', (event) => {
   const data = event.data?.json() || {};
+  // PNG, no el SVG del favicon: la Notification API (y en particular el
+  // badge de la barra de estado de Android) no renderiza SVG de forma
+  // confiable -- con el SVG el icono no aparecia.
   event.waitUntil(self.registration.showNotification(data.title || 'Alarma', {
     body: data.body || 'Se modifico una zona',
-    icon: '/icons/app-icon.svg',
-    badge: '/icons/app-icon.svg',
+    icon: '/icons/app-icon-256.png',
+    badge: '/icons/app-icon-96.png',
     tag: data.tag || 'alarma-cambio-zona',
     renotify: true,
     data: { url: data.url || '/' },

@@ -1,4 +1,5 @@
 const listEl = document.getElementById('dispositivos');
+const temperaturaEl = document.getElementById('temperatura-interna');
 const COOLDOWN_MS = 3000; // igual al cooldown del firmware -- ver Config.h
 
 // Sin boton propio de instalacion: sin el listener de beforeinstallprompt que
@@ -425,6 +426,9 @@ function derivarEventos(snapshots) {
 
 function mostrarLogZonas(logEl, snapshots) {
   const eventos = derivarEventos(snapshots);
+  const horasAbiertas = new Set(
+    [...logEl.querySelectorAll('.log-grupo-hora[open]')].map((grupo) => grupo.dataset.hora)
+  );
   logEl.innerHTML = '';
 
   if (eventos.length === 0) {
@@ -432,33 +436,44 @@ function mostrarLogZonas(logEl, snapshots) {
     return;
   }
 
-  let horaMostrada = null;
-  let lineas = null;
+  const grupos = new Map();
 
   for (const evento of eventos) {
     const etiqueta = etiquetaHoraAR(evento.createdAt);
-    if (etiqueta !== horaMostrada) {
-      horaMostrada = etiqueta;
+    if (!grupos.has(etiqueta)) {
+      grupos.set(etiqueta, []);
+    }
+    grupos.get(etiqueta).push(evento);
+  }
 
-      const encabezado = document.createElement('div');
-      encabezado.className = 'log-hora';
-      encabezado.textContent = etiqueta;
+  for (const [etiqueta, eventosHora] of grupos) {
+    const grupo = document.createElement('details');
+    grupo.className = 'log-grupo-hora';
+    grupo.dataset.hora = etiqueta;
+    grupo.open = horasAbiertas.has(etiqueta);
 
-      lineas = document.createElement('div');
-      logEl.append(encabezado, lineas);
+    const encabezado = document.createElement('summary');
+    encabezado.className = 'log-hora';
+    encabezado.textContent = etiqueta;
+
+    const lineas = document.createElement('div');
+
+    for (const evento of eventosHora) {
+      const hora = document.createElement('span');
+      hora.className = 'log-ts';
+      hora.textContent = horaExactaAR(evento.createdAt);
+
+      const texto = document.createElement('span');
+      texto.textContent = `Zona ${evento.zona} ${evento.activa ? 'activada' : 'en reposo'}`;
+
+      const linea = document.createElement('div');
+      linea.className = `log-linea ${evento.activa ? 'log-activa' : 'log-reposo'}`;
+      linea.append(hora, texto);
+      lineas.appendChild(linea);
     }
 
-    const hora = document.createElement('span');
-    hora.className = 'log-ts';
-    hora.textContent = horaExactaAR(evento.createdAt);
-
-    const texto = document.createElement('span');
-    texto.textContent = `Zona ${evento.zona} ${evento.activa ? 'activada' : 'en reposo'}`;
-
-    const linea = document.createElement('div');
-    linea.className = `log-linea ${evento.activa ? 'log-activa' : 'log-reposo'}`;
-    linea.append(hora, texto);
-    lineas.appendChild(linea);
+    grupo.append(encabezado, lineas);
+    logEl.appendChild(grupo);
   }
 }
 
@@ -506,13 +521,11 @@ async function init() {
       zonasEl.className = 'zonas';
       const actualizadoEl = document.createElement('div');
       actualizadoEl.className = 'historial';
-      const temperaturaEl = document.createElement('div');
-      temperaturaEl.className = 'historial';
       const logEl = document.createElement('div');
       logEl.className = 'log-zonas';
 
       const notificationControl = crearControlNotificaciones();
-      card.append(nombre, notificationControl, zonasEl, actualizadoEl, temperaturaEl, logEl);
+      card.append(nombre, notificationControl, zonasEl, actualizadoEl, logEl);
       listEl.appendChild(card);
 
       zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl });

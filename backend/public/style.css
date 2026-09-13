@@ -97,6 +97,16 @@ button:disabled {
   align-items: center;
 }
 
+.topbar-titulo h1 {
+  margin: 0;
+}
+
+.topbar .temperatura-interna {
+  margin-top: 3px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
 .topbar button {
   background: transparent;
   color: var(--ink-muted);
@@ -346,12 +356,8 @@ button:disabled {
   font-size: 14px;
 }
 
-/* Se muestran 10 entradas y el resto queda con scroll: el log no puede crecer
-   hasta empujar el plano de zonas fuera de la pantalla. El alto de linea se
-   fija explicitamente (en vez de dejar line-height en "normal") justamente
-   para que ese "10" sea exacto y no una estimacion. Los encabezados de hora
-   suman su propio alto, asi que en la practica se ven 10 lineas mas los
-   encabezados que caigan en el medio. */
+/* Cada hora ocupa una fila colapsable. El scroll evita que una lista extensa
+   empuje el resto de los controles fuera de la pantalla. */
 .log-zonas {
   --log-alto-linea: 21px; /* 15px de line-height + 6px de padding */
   margin-top: 6px;
@@ -362,25 +368,26 @@ button:disabled {
 }
 
 .log-hora {
-  position: sticky;
-  top: 0;
-  background: var(--panel);
-  padding: 4px 0 3px;
-  margin-top: 10px;
+  cursor: pointer;
+  padding: 6px 2px;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   border-bottom: 1px solid var(--border);
 }
 
-.log-hora:first-child {
-  margin-top: 0;
+.log-grupo-hora + .log-grupo-hora {
+  margin-top: 3px;
+}
+
+.log-grupo-hora[open] .log-hora {
+  color: var(--ink-2);
 }
 
 .log-linea {
   display: flex;
   gap: 10px;
-  padding: 3px 0;
+  padding: 3px 2px 3px 18px;
   line-height: 15px;
 }
 
