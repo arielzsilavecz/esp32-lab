@@ -165,3 +165,18 @@ reusando el endpoint y el schema JSONB existentes — sin migración ni endpoint
   hasta el primer reporte que la incluya, sin umbral de alerta ni color de advertencia:
   al no estar calibrada, fijar un número de "peligro" sería falsa precisión. La lectura
   cruda alcanza para que el usuario juzgue la tendencia.
+
+## Revisión (2026-09-14): el polling del portón sale del loop de captura
+
+Los estados de producción mostraron zonas que quedaban activas hasta el siguiente cambio
+real del panel. La causa no estaba en SSE ni en el backend: el `GET` HTTPS que consulta
+comandos del portón corría en el loop principal y abría, cada segundo, un hueco de cientos
+de milisegundos entre ventanas de captura. Si las dos copias de la trama de reposo caían
+en ese hueco, el último snapshot quedaba activo indefinidamente.
+
+El polling HTTPS ahora corre en una tarea FreeRTOS propia. Una cola de un elemento entrega
+el id del comando al loop principal, que conserva la responsabilidad exclusiva sobre el
+cooldown y la transmisión RF; una segunda cola confirma que terminó para que la tarea de
+red recién entonces marque el comando como consumido. Así no se comparte `BackendClient`
+entre tareas ni se permiten transmisiones RF concurrentes, y la captura deja de depender
+de la latencia de Railway.

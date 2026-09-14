@@ -88,8 +88,15 @@ net::BackendClient backendClient(secrets::kBackendUrl, secrets::kAlarmDeviceToke
 // backend (dos filas en `dispositivos`), aunque compartan el mismo ESP32
 // fisico -- mismo modelo generico de ADR-0006, no hace falta fusionarlas.
 net::BackendClient portonBackendClient(secrets::kBackendUrl, secrets::kDeviceToken);
-uint32_t lastPortonPollMs = 0;
 constexpr uint32_t kPortonPollIntervalMs = 1000;
+
+// El GET HTTPS del porton vive en una tarea aparte para no abrir huecos de
+// cientos de milisegundos en la captura del bus de alarma. La tarea entrega
+// el id al loop principal y espera su confirmacion: la transmision RF y el
+// cooldown siguen teniendo un unico dueño y nunca se ejecutan en paralelo
+// con el pulsador local.
+QueueHandle_t portonCommandQueue = nullptr;
+QueueHandle_t portonCommandAckQueue = nullptr;
 
 struct ZoneStatus {
   bool zones[xanaes::kZoneCount];
@@ -196,25 +203,19 @@ void pollTriggerButton() {
   }
 }
 
-// Polling saliente al backend para comandos del porton (ver backend/,
-// ADR-0006): bloqueante durante el round-trip HTTPS, mismo criterio que
-// firmware/src/main.cpp. A diferencia del reporte de zonas, este poll es tan
-// seguido (1s) que la conexion nunca llega a estar ociosa el tiempo
-// suficiente como para necesitar un keep-warm aparte -- se mantiene tibia
-// sola.
+// Consume en el loop principal los comandos que obtuvo la tarea de red. Esta
+// funcion no hace I/O de red: termina rapido y deja arrancar inmediatamente
+// la siguiente ventana de captura del bus.
 void pollPortonCommand() {
-  const uint32_t now = millis();
-  if (now - lastPortonPollMs < kPortonPollIntervalMs) return;
-  lastPortonPollMs = now;
+  if (portonCommandQueue == nullptr || portonCommandAckQueue == nullptr) return;
 
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  const net::PendingCommand command = portonBackendClient.pollPendingCommand();
-  if (!command.present) return;
+  uint32_t commandId = 0;
+  if (xQueueReceive(portonCommandQueue, &commandId, 0) != pdTRUE) return;
 
   // Mismo criterio que pollTriggerButton(): un comando que llega en cooldown
   // se descarta, no se encola para mas tarde -- se confirma igual para que
   // no vuelva a aparecer en el proximo poll.
+  const uint32_t now = millis();
   if (now - lastTriggerMs < kTriggerCooldownMs) {
     logger::warn("main", "comando del backend ignorado: en cooldown");
   } else {
@@ -222,7 +223,30 @@ void pollPortonCommand() {
     lastTriggerMs = millis();
   }
 
-  portonBackendClient.acknowledge(command.id);
+  xQueueOverwrite(portonCommandAckQueue, &commandId);
+}
+
+void pollPortonCommandTask(void*) {
+  for (;;) {
+    if (WiFi.status() == WL_CONNECTED) {
+      const net::PendingCommand command = portonBackendClient.pollPendingCommand();
+      if (command.present) {
+        const uint32_t commandId = command.id;
+        xQueueSend(portonCommandQueue, &commandId, portMAX_DELAY);
+
+        // No consultar de nuevo hasta que el loop haya transmitido o
+        // descartado por cooldown. Asi el mismo comando no se entrega dos
+        // veces mientras todavia esta siendo procesado.
+        uint32_t processedId = 0;
+        xQueueReceive(portonCommandAckQueue, &processedId, portMAX_DELAY);
+        if (processedId == commandId) {
+          portonBackendClient.acknowledge(commandId);
+        }
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(kPortonPollIntervalMs));
+  }
 }
 
 // No bloquea para siempre si el WiFi no esta disponible: captura manual,
@@ -475,6 +499,13 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(kTriggerButtonPin), onTriggerButtonPressed, FALLING);
   rfTransmitter.begin();
   connectWiFi();
+
+  portonCommandQueue = xQueueCreate(1, sizeof(uint32_t));
+  portonCommandAckQueue = xQueueCreate(1, sizeof(uint32_t));
+  if (portonCommandQueue == nullptr || portonCommandAckQueue == nullptr ||
+      xTaskCreate(pollPortonCommandTask, "porton-poll", 8192, nullptr, 1, nullptr) != pdPASS) {
+    logger::warn("main", "no se pudo iniciar la tarea de comandos del porton");
+  }
 
   zoneStatusQueue = xQueueCreate(1, sizeof(ZoneStatus));
   if (zoneStatusQueue == nullptr ||
