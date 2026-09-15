@@ -1,12 +1,15 @@
 self.addEventListener('push', (event) => {
   const data = event.data?.json() || {};
-  // PNG, no el SVG del favicon: la Notification API (y en particular el
-  // badge de la barra de estado de Android) no renderiza SVG de forma
-  // confiable -- con el SVG el icono no aparecia.
+  // PNG con fondo transparente, no el SVG del favicon con fondo solido: la
+  // Notification API no renderiza SVG de forma confiable, y un fondo opaco
+  // de borde a borde (el favicon tiene un cuadrado redondeado #1a1a19 que
+  // cubre todo el lienzo) queda irreconocible cuando el SO le aplica su
+  // propio recorte/mascara -- comparado con gastos-app/nono-lalo, que usan
+  // el sujeto recortado sobre fondo transparente y sí se ven bien.
   event.waitUntil(self.registration.showNotification(data.title || 'Alarma', {
     body: data.body || 'Se modifico una zona',
-    icon: '/icons/app-icon-256.png',
-    badge: '/icons/app-icon-96.png',
+    icon: '/icons/app-icon-notification-256.png',
+    badge: '/icons/app-icon-notification-96.png',
     tag: data.tag || 'alarma-cambio-zona',
     renotify: true,
     data: { url: data.url || '/' },
