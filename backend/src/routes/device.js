@@ -3,6 +3,7 @@ import { pool } from '../db.js';
 import { requireDeviceToken } from '../deviceAuth.js';
 import { publishDeviceState } from '../stateEvents.js';
 import { notifyZoneChanges } from '../pushNotifications.js';
+import { claimCommandSql } from '../commandPolicy.js';
 
 export const deviceRouter = Router();
 
@@ -11,8 +12,8 @@ deviceRouter.use(requireDeviceToken);
 // Mantiene viva la conexion TLS del dispositivo. Railway cierra los sockets
 // ociosos a los 60s exactos (medido) y rehacer el handshake le cuesta ~1.9s a
 // un ESP32, contra ~250ms de una request sobre una conexion ya abierta -- ver
-// ADR-0009. No consulta la base a proposito: el unico objetivo es que el
-// socket no muera, asi que conviene que sea lo mas barato posible.
+// ADR-0009. requireDeviceToken registra tambien el ultimo contacto en la
+// base; no crea snapshots ni eventos de sensores por este heartbeat.
 deviceRouter.get('/ping', (_req, res) => {
   // Un body corto obliga al HTTPClient del ESP32 a consumir la respuesta
   // completa antes de conservar el socket. Con 204 dejaba un socket TLS que
@@ -23,10 +24,7 @@ deviceRouter.get('/ping', (_req, res) => {
 // La ESP32 llama esto cada ~1s (ver ADR-0006 por que 1s no cambia el costo).
 deviceRouter.get('/comando-pendiente', async (req, res) => {
   const result = await pool.query(
-    `SELECT id, tipo_comando FROM comandos
-     WHERE dispositivo_id = $1 AND consumido_at IS NULL
-     ORDER BY created_at ASC
-     LIMIT 1`,
+    claimCommandSql,
     [req.dispositivo.id]
   );
 

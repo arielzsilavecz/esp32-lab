@@ -59,6 +59,29 @@ pueden fijar explicitamente con `WEBAUTHN_RP_ID` (solo hostname) y `WEBAUTHN_ORI
 
 ## Limitaciones conocidas, a proposito
 
+### Ordenes inmediatas y presencia del ESP32
+
+Aplicar `npm run migrate -- 008_command_expiry_presence.sql` antes de desplegar
+el backend nuevo. Luego cargar el firmware nuevo de `alarm-sniffer`.
+El firmware exige `ttl_ms`: con un backend anterior descarta las ordenes.
+
+Las ordenes caducan a los 5 segundos y se entregan como maximo una vez. Una
+respuesta perdida puede perder una apertura, pero nunca provoca un reenvio
+automatico. Las ordenes anteriores a la migracion quedan vencidas conservando
+el historial. No se acepta una orden sin contacto del dispositivo en los
+ultimos 10 segundos. El firmware tambien comprueba el plazo antes de transmitir.
+La confirmacion significa que el ESP32 transmitio RF, no que el porton se abrio
+fisicamente (no hay sensor de posicion).
+
+El badge consulta cada 5 segundos la ultima request autenticada del dispositivo.
+Porton: sin contacto por 10 segundos pasa a desconectado. Alarma: 90 segundos,
+porque mantiene contacto con un ping cada 45 segundos aunque no cambien zonas.
+Estos indicadores miden comunicacion con el backend, no validan el cable del bus
+ni que el estado del sensor sea una lectura nueva. Si falla la conexion de la
+pagina al backend se muestra un estado distinto y se deshabilita Activar.
+
+Prueba SQL aislada (tablas temporales y rollback): `node src/commandPolicy.test.js`.
+
 - **Sesiones en memoria** (`express-session` MemoryStore, el default): no sobreviven un
   redeploy/restart del contenedor — todos vuelven a loguearse. Aceptable para un puñado
   de usuarios de confianza. Si molesta, la salida es `connect-redis` (ya usado en

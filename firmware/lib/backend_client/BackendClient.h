@@ -11,6 +11,7 @@ struct PendingCommand {
   bool present;
   uint32_t id;
   String tipo;
+  uint32_t expiresAtMs;
 };
 
 // Cliente HTTPS del backend (ver backend/, ADR-0006). Asume que la conexion

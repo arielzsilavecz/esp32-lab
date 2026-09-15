@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { subscribeToDeviceState } from '../stateEvents.js';
+import { createCommandSql } from '../commandPolicy.js';
 
 export const dispositivosRouter = Router();
 
@@ -9,6 +10,17 @@ dispositivosRouter.use(requireAuth);
 
 dispositivosRouter.get('/', async (_req, res) => {
   const result = await pool.query('SELECT id, nombre, tipo FROM dispositivos ORDER BY id');
+  res.json(result.rows);
+});
+
+dispositivosRouter.get('/conexion', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const result = await pool.query(`
+    SELECT id, last_seen_at,
+      COALESCE(last_seen_at > clock_timestamp() -
+        CASE WHEN tipo = 'porton' THEN interval '10 seconds' ELSE interval '90 seconds' END,
+        false) AS conectado
+    FROM dispositivos ORDER BY id`);
   res.json(result.rows);
 });
 
@@ -47,6 +59,10 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     return res.status(404).json({ error: 'Dispositivo no encontrado' });
   }
 
+  if (dispositivo.rows[0].tipo === 'porton' && tipoComando !== 'activar') {
+    return res.status(400).json({ error: 'Comando de porton no permitido' });
+  }
+
   if (dispositivo.rows[0].tipo === 'porton' && tipoComando === 'activar') {
     const autorizacion = req.session.portonAuthorization;
     delete req.session.portonAuthorization;
@@ -58,11 +74,12 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
   }
 
   const result = await pool.query(
-    `INSERT INTO comandos (dispositivo_id, tipo_comando, created_by)
-     VALUES ($1, $2, $3)
-     RETURNING id, created_at`,
+    createCommandSql,
     [id, tipoComando, req.session.userId]
   );
+  if (result.rowCount === 0) {
+    return res.status(409).json({ error: 'ESP32 sin conexion reciente. La orden no se guardo.' });
+  }
   res.status(201).json(result.rows[0]);
 });
 
@@ -103,7 +120,8 @@ dispositivosRouter.get('/:id/estados', async (req, res) => {
 dispositivosRouter.get('/:id/historial', async (req, res) => {
   const { id } = req.params;
   const result = await pool.query(
-    `SELECT c.id, c.tipo_comando, c.created_at, c.consumido_at, u.nombre AS activado_por
+    `SELECT c.id, c.tipo_comando, c.created_at, c.consumido_at, c.expires_at,
+       c.delivered_at, u.nombre AS activado_por
      FROM comandos c
      JOIN usuarios u ON u.id = c.created_by
      WHERE c.dispositivo_id = $1

@@ -21,5 +21,13 @@ export async function requireDeviceToken(req, res, next) {
   }
 
   req.dispositivo = result.rows[0];
+  // Toda request autenticada es prueba de contacto, aunque ninguna zona cambie.
+  // Limitar escrituras a una cada 5s por identidad.
+  await pool.query(
+    `UPDATE dispositivos SET last_seen_at = clock_timestamp()
+     WHERE id = $1 AND (last_seen_at IS NULL
+       OR last_seen_at < clock_timestamp() - interval '5 seconds')`,
+    [req.dispositivo.id]
+  );
   next();
 }

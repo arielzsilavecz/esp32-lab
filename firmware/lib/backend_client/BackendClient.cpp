@@ -47,19 +47,25 @@ String extractStringField(const String& json, const char* field) {
 }  // namespace
 
 PendingCommand BackendClient::pollPendingCommand() {
+  const uint32_t requestStartMs = millis();
   http_.begin(secureClient_, baseUrl_ + "/api/device/comando-pendiente");
   http_.addHeader("Authorization", "Bearer " + deviceToken_);
 
   const int status = http_.GET();
 
-  PendingCommand result{false, 0, ""};
+  PendingCommand result{false, 0, "", 0};
   if (status == 200) {
     const String body = http_.getString();
     const long id = extractNumberField(body, "id");
-    if (id >= 0) {
+    const long ttlMs = extractNumberField(body, "ttl_ms");
+    // Restar toda la duracion del request es conservador: una respuesta
+    // demorada nunca rejuvenece una orden vencida.
+    if (id >= 0 && ttlMs > 0 && ttlMs <= 5000 &&
+        millis() - requestStartMs < static_cast<uint32_t>(ttlMs)) {
       result.present = true;
       result.id = static_cast<uint32_t>(id);
       result.tipo = extractStringField(body, "tipo_comando");
+      result.expiresAtMs = requestStartMs + static_cast<uint32_t>(ttlMs);
     }
   }
   // status == 204: sin comando pendiente. Cualquier otro status (red caida,

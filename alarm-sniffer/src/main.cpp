@@ -97,6 +97,10 @@ constexpr uint32_t kPortonPollIntervalMs = 1000;
 // con el pulsador local.
 QueueHandle_t portonCommandQueue = nullptr;
 QueueHandle_t portonCommandAckQueue = nullptr;
+struct PortonCommand {
+  uint32_t id;
+  uint32_t expiresAtMs;
+};
 
 struct ZoneStatus {
   bool zones[xanaes::kZoneCount];
@@ -209,30 +213,41 @@ void pollTriggerButton() {
 void pollPortonCommand() {
   if (portonCommandQueue == nullptr || portonCommandAckQueue == nullptr) return;
 
-  uint32_t commandId = 0;
-  if (xQueueReceive(portonCommandQueue, &commandId, 0) != pdTRUE) return;
+  PortonCommand command{};
+  if (xQueueReceive(portonCommandQueue, &command, 0) != pdTRUE) return;
 
   // Mismo criterio que pollTriggerButton(): un comando que llega en cooldown
   // se descarta, no se encola para mas tarde -- se confirma igual para que
   // no vuelva a aparecer en el proximo poll.
   const uint32_t now = millis();
+  if (static_cast<int32_t>(now - command.expiresAtMs) >= 0 || WiFi.status() != WL_CONNECTED) {
+    logger::warn("main", "orden vencida o sin WiFi: descartada sin transmitir");
+    // Desbloquear la tarea, sin confirmar una transmision que no ocurrio.
+    const uint32_t discardedId = 0;
+    xQueueOverwrite(portonCommandAckQueue, &discardedId);
+    return;
+  }
   if (now - lastTriggerMs < kTriggerCooldownMs) {
     logger::warn("main", "comando del backend ignorado: en cooldown");
+    const uint32_t discardedId = 0;
+    xQueueOverwrite(portonCommandAckQueue, &discardedId);
+    return;
   } else {
     runTransmit();
     lastTriggerMs = millis();
   }
 
-  xQueueOverwrite(portonCommandAckQueue, &commandId);
+  xQueueOverwrite(portonCommandAckQueue, &command.id);
 }
 
 void pollPortonCommandTask(void*) {
   for (;;) {
     if (WiFi.status() == WL_CONNECTED) {
       const net::PendingCommand command = portonBackendClient.pollPendingCommand();
-      if (command.present) {
+      if (command.present && command.tipo == "activar") {
         const uint32_t commandId = command.id;
-        xQueueSend(portonCommandQueue, &commandId, portMAX_DELAY);
+        const PortonCommand queued{commandId, command.expiresAtMs};
+        xQueueSend(portonCommandQueue, &queued, portMAX_DELAY);
 
         // No consultar de nuevo hasta que el loop haya transmitido o
         // descartado por cooldown. Asi el mismo comando no se entrega dos
@@ -500,7 +515,7 @@ void setup() {
   rfTransmitter.begin();
   connectWiFi();
 
-  portonCommandQueue = xQueueCreate(1, sizeof(uint32_t));
+  portonCommandQueue = xQueueCreate(1, sizeof(PortonCommand));
   portonCommandAckQueue = xQueueCreate(1, sizeof(uint32_t));
   if (portonCommandQueue == nullptr || portonCommandAckQueue == nullptr ||
       xTaskCreate(pollPortonCommandTask, "porton-poll", 8192, nullptr, 1, nullptr) != pdPASS) {

@@ -143,6 +143,7 @@ async function verificarBiometria(dispositivoId) {
 }
 
 async function activar(dispositivoId, boton, historialEl) {
+  boton.dataset.busy = 'true';
   boton.disabled = true;
   const textoOriginal = boton.textContent;
   boton.textContent = 'Verificando...';
@@ -150,16 +151,33 @@ async function activar(dispositivoId, boton, historialEl) {
   try {
     await verificarBiometria(dispositivoId);
     boton.textContent = 'Enviando...';
-    await exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/comandos`, {
+    const command = await exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/comandos`, {
       method: 'POST',
+      signal: AbortSignal.timeout(5000),
     }));
-    boton.textContent = 'Enviado';
+    boton.textContent = 'Esperando ESP32...';
+    let confirmado = false;
+    const limite = Date.now() + 7000;
+    while (Date.now() < limite) {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const history = await exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/historial`, {
+        cache: 'no-store', signal: AbortSignal.timeout(3000),
+      }));
+      if (history.some((item) => item.id === command.id && item.consumido_at)) {
+        confirmado = true;
+        break;
+      }
+    }
+    boton.textContent = confirmado ? 'ESP32 confirmo' : 'Sin confirmacion';
     await cargarHistorial(dispositivoId, historialEl);
+    if (!confirmado) historialEl.textContent = 'Sin confirmacion del ESP32. La orden no se reenvia; verifica el porton antes de intentar otra vez.';
   } catch (error) {
     boton.textContent = error.name === 'NotAllowedError' ? 'Cancelado' : 'Error, reintentar';
+    historialEl.textContent = error.name === 'NotAllowedError' ? 'Verificacion cancelada.' : error.message;
   } finally {
     setTimeout(() => {
-      boton.disabled = false;
+      delete boton.dataset.busy;
+      boton.disabled = boton.dataset.online !== 'true';
       boton.textContent = textoOriginal;
     }, COOLDOWN_MS);
   }
@@ -170,7 +188,7 @@ async function cargarHistorial(dispositivoId, historialEl) {
   const historial = await response.json();
   const ultimo = historial[0];
   historialEl.textContent = ultimo
-    ? `Ultima activacion: ${ultimo.activado_por}, ${formatoRelativo(ultimo.created_at)}`
+    ? `Ultima orden: ${ultimo.activado_por}, ${formatoRelativo(ultimo.created_at)} · ${ultimo.consumido_at ? 'ESP32 confirmo' : Date.parse(ultimo.expires_at) <= Date.now() ? 'vencida / sin confirmacion' : 'pendiente (max. 5s)'}`
     : 'Sin activaciones todavia';
 }
 
@@ -612,6 +630,43 @@ function conectarEstadoEnVivo() {
   });
 }
 
+const connectionViews = new Map();
+let connectionRequestBusy = false;
+
+async function actualizarConexion() {
+  if (connectionRequestBusy) return;
+  connectionRequestBusy = true;
+  try {
+    const estados = await exigirRespuestaExitosa(await api('/api/dispositivos/conexion', {
+      cache: 'no-store', signal: AbortSignal.timeout(5000),
+    }));
+    for (const [id, view] of connectionViews) {
+      const estado = estados.find((item) => String(item.id) === id);
+      const online = estado?.conectado === true;
+      view.badge.className = `conexion-badge ${online ? 'online' : 'offline'}`;
+      view.badge.textContent = online ? '● ESP32 conectado' : '● ESP32 sin conexion';
+      view.badge.title = estado?.last_seen_at
+        ? `Ultimo contacto: ${new Date(estado.last_seen_at).toLocaleString('es-AR')}`
+        : 'Todavia no se recibio una señal de conexion';
+      if (view.boton) {
+        view.boton.dataset.online = String(online);
+        view.boton.disabled = !online || view.boton.dataset.busy === 'true';
+      }
+    }
+  } catch {
+    for (const view of connectionViews.values()) {
+      view.badge.className = 'conexion-badge offline';
+      view.badge.textContent = '● Sin conexion con el servidor';
+      if (view.boton) {
+        view.boton.dataset.online = 'false';
+        view.boton.disabled = true;
+      }
+    }
+  } finally {
+    connectionRequestBusy = false;
+  }
+}
+
 async function init() {
   const response = await api('/api/dispositivos');
   const dispositivos = await response.json();
@@ -628,6 +683,11 @@ async function init() {
     const nombre = document.createElement('div');
     nombre.className = 'nombre';
     nombre.textContent = dispositivo.nombre;
+    const badge = document.createElement('div');
+    badge.className = 'conexion-badge';
+    badge.textContent = '● Comprobando conexion...';
+    badge.setAttribute('role', 'status');
+    connectionViews.set(String(dispositivo.id), { badge });
 
     if (dispositivo.tipo === 'alarma') {
       const zonasEl = document.createElement('div');
@@ -638,7 +698,7 @@ async function init() {
       logEl.className = 'log-zonas';
 
       const notificationControl = crearControlNotificaciones();
-      card.append(nombre, notificationControl, zonasEl, actualizadoEl, logEl);
+      card.append(nombre, badge, notificationControl, zonasEl, actualizadoEl, logEl);
       listEl.appendChild(card);
 
       zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl });
@@ -656,6 +716,8 @@ async function init() {
 
     const boton = document.createElement('button');
     boton.textContent = 'Activar';
+    boton.disabled = true;
+    connectionViews.get(String(dispositivo.id)).boton = boton;
 
     const historialEl = document.createElement('div');
     historialEl.className = 'historial';
@@ -666,13 +728,18 @@ async function init() {
     fila.className = 'fila-compacta';
     fila.append(nombre, boton);
 
-    card.append(fila, historialEl);
+    card.append(fila, badge, historialEl);
     listEl.appendChild(card);
 
     cargarHistorial(dispositivo.id, historialEl);
   }
 
   conectarEstadoEnVivo();
+  actualizarConexion();
+  setInterval(actualizarConexion, 5000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) actualizarConexion();
+  });
 }
 
 document.getElementById('logout').addEventListener('click', async () => {
