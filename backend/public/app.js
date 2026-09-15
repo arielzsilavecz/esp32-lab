@@ -630,37 +630,41 @@ function conectarEstadoEnVivo() {
   });
 }
 
-const connectionViews = new Map();
+// Un solo badge junto al titulo, no uno por tarjeta: alarma y porton son el
+// mismo ESP32 fisico desde la consolidacion (ver ADR de consolidacion), asi
+// que mostrar "conectado" dos veces era redundante. Se toma el estado del
+// porton como referencia porque su polling (1s, umbral de 10s en el backend)
+// detecta una desconexion mucho mas rapido que el keep-warm de la alarma
+// (45s, umbral de 90s) -- si el porton esta vivo, el equipo esta vivo.
+const conexionBadgeEl = document.getElementById('conexion-badge');
+let portonId = null;
+let portonBoton = null;
 let connectionRequestBusy = false;
 
 async function actualizarConexion() {
-  if (connectionRequestBusy) return;
+  if (connectionRequestBusy || portonId === null) return;
   connectionRequestBusy = true;
   try {
     const estados = await exigirRespuestaExitosa(await api('/api/dispositivos/conexion', {
       cache: 'no-store', signal: AbortSignal.timeout(5000),
     }));
-    for (const [id, view] of connectionViews) {
-      const estado = estados.find((item) => String(item.id) === id);
-      const online = estado?.conectado === true;
-      view.badge.className = `conexion-badge ${online ? 'online' : 'offline'}`;
-      view.badge.textContent = online ? '● ESP32 conectado' : '● ESP32 sin conexion';
-      view.badge.title = estado?.last_seen_at
-        ? `Ultimo contacto: ${new Date(estado.last_seen_at).toLocaleString('es-AR')}`
-        : 'Todavia no se recibio una señal de conexion';
-      if (view.boton) {
-        view.boton.dataset.online = String(online);
-        view.boton.disabled = !online || view.boton.dataset.busy === 'true';
-      }
+    const estado = estados.find((item) => String(item.id) === portonId);
+    const online = estado?.conectado === true;
+    conexionBadgeEl.className = `conexion-badge ${online ? 'online' : 'offline'}`;
+    conexionBadgeEl.textContent = online ? '● ESP32 conectado' : '● ESP32 sin conexion';
+    conexionBadgeEl.title = estado?.last_seen_at
+      ? `Ultimo contacto: ${new Date(estado.last_seen_at).toLocaleString('es-AR')}`
+      : 'Todavia no se recibio una señal de conexion';
+    if (portonBoton) {
+      portonBoton.dataset.online = String(online);
+      portonBoton.disabled = !online || portonBoton.dataset.busy === 'true';
     }
   } catch {
-    for (const view of connectionViews.values()) {
-      view.badge.className = 'conexion-badge offline';
-      view.badge.textContent = '● Sin conexion con el servidor';
-      if (view.boton) {
-        view.boton.dataset.online = 'false';
-        view.boton.disabled = true;
-      }
+    conexionBadgeEl.className = 'conexion-badge offline';
+    conexionBadgeEl.textContent = '● Sin conexion con el servidor';
+    if (portonBoton) {
+      portonBoton.dataset.online = 'false';
+      portonBoton.disabled = true;
     }
   } finally {
     connectionRequestBusy = false;
@@ -683,11 +687,6 @@ async function init() {
     const nombre = document.createElement('div');
     nombre.className = 'nombre';
     nombre.textContent = dispositivo.nombre;
-    const badge = document.createElement('div');
-    badge.className = 'conexion-badge';
-    badge.textContent = '● Comprobando conexion...';
-    badge.setAttribute('role', 'status');
-    connectionViews.set(String(dispositivo.id), { badge });
 
     if (dispositivo.tipo === 'alarma') {
       const zonasEl = document.createElement('div');
@@ -698,7 +697,7 @@ async function init() {
       logEl.className = 'log-zonas';
 
       const notificationControl = crearControlNotificaciones();
-      card.append(nombre, badge, notificationControl, zonasEl, actualizadoEl, logEl);
+      card.append(nombre, notificationControl, zonasEl, actualizadoEl, logEl);
       listEl.appendChild(card);
 
       zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl });
@@ -717,7 +716,8 @@ async function init() {
     const boton = document.createElement('button');
     boton.textContent = 'Activar';
     boton.disabled = true;
-    connectionViews.get(String(dispositivo.id)).boton = boton;
+    portonId = String(dispositivo.id);
+    portonBoton = boton;
 
     const historialEl = document.createElement('div');
     historialEl.className = 'historial';
@@ -728,7 +728,7 @@ async function init() {
     fila.className = 'fila-compacta';
     fila.append(nombre, boton);
 
-    card.append(fila, badge, historialEl);
+    card.append(fila, historialEl);
     listEl.appendChild(card);
 
     cargarHistorial(dispositivo.id, historialEl);
