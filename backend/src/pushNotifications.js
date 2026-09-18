@@ -2,6 +2,8 @@ import webpush from 'web-push';
 import { pool } from './db.js';
 
 const NOTIFICATION_COOLDOWN_MINUTES = 5;
+const PUSH_TTL_SECONDS = 60;
+const PUSH_URGENCY = 'high';
 let vapidConfigured = false;
 let vapidConfigurationPromise = null;
 let vapidConfiguration = null;
@@ -141,7 +143,10 @@ export async function notifyZoneChanges(device, previousState, currentState) {
 
   await Promise.all(subscriptions.rows.map(async ({ endpoint, subscription }) => {
     try {
-      await webpush.sendNotification(subscription, payload);
+      await webpush.sendNotification(subscription, payload, {
+        TTL: PUSH_TTL_SECONDS,
+        urgency: PUSH_URGENCY,
+      });
     } catch (error) {
       if (error.statusCode === 404 || error.statusCode === 410) {
         await removeExpiredSubscription(endpoint);
