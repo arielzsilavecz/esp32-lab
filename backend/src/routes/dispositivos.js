@@ -101,16 +101,32 @@ dispositivosRouter.get('/:id/estado', async (req, res) => {
 // primero. Devuelve el estado crudo: que una zona "se activo" es una
 // transicion entre dos snapshots, y derivarla es trabajo de la pagina -- el
 // backend sigue sin saber que es una zona (mismo criterio que ADR-0006).
+//
+// ?fecha=YYYY-MM-DD devuelve el dia completo en hora de Argentina (hoy si no
+// viene), mas el ultimo snapshot anterior a ese dia: sin el, la primera
+// transicion del dia no tendria contra que compararse.
 dispositivosRouter.get('/:id/estados', async (req, res) => {
   const { id } = req.params;
-  const limite = Math.min(Number(req.query.limit) || 100, 500);
+  const fecha = req.query.fecha ?? null;
+  if (fecha !== null && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return res.status(400).json({ error: 'fecha debe ser YYYY-MM-DD' });
+  }
 
   const result = await pool.query(
-    `SELECT estado, created_at FROM estados
-     WHERE dispositivo_id = $1
-     ORDER BY created_at DESC
-     LIMIT $2`,
-    [id, limite]
+    `WITH dia AS (
+       SELECT d::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires' AS desde,
+              (d + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires' AS hasta
+       FROM (SELECT COALESCE($2::date,
+         (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) AS d) f
+     )
+     SELECT estado, created_at FROM estados, dia
+     WHERE dispositivo_id = $1 AND created_at >= dia.desde AND created_at < dia.hasta
+     UNION ALL
+     (SELECT estado, created_at FROM estados, dia
+      WHERE dispositivo_id = $1 AND created_at < dia.desde
+      ORDER BY created_at DESC LIMIT 1)
+     ORDER BY created_at DESC`,
+    [id, fecha]
   );
   res.json(result.rows);
 });

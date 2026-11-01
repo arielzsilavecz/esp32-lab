@@ -563,7 +563,7 @@ function mostrarLogZonas(logEl, snapshots) {
   logEl.innerHTML = '';
 
   if (eventos.length === 0) {
-    logEl.textContent = 'Sin activaciones registradas todavia';
+    logEl.textContent = 'Sin activaciones este dia';
     return;
   }
 
@@ -608,9 +608,29 @@ function mostrarLogZonas(logEl, snapshots) {
   }
 }
 
-async function cargarLogZonas(dispositivoId, logEl) {
-  const response = await api(`/api/dispositivos/${dispositivoId}/estados`);
+// en-CA formatea como YYYY-MM-DD, que es lo que esperan <input type="date"> y
+// el backend.
+function fechaAR(fecha = new Date()) {
+  return fecha.toLocaleDateString('en-CA', { timeZone: TZ_AR });
+}
+
+async function cargarLogZonas(dispositivoId, logEl, fecha) {
+  const response = await api(`/api/dispositivos/${dispositivoId}/estados?fecha=${fecha}`);
   mostrarLogZonas(logEl, await response.json());
+}
+
+// Retencion de 60 dias en el backend (retencion.js): mas atras no hay datos.
+function crearSelectorFecha(alCambiar) {
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'log-fecha';
+  input.setAttribute('aria-label', 'Dia del log');
+  input.value = input.max = fechaAR();
+  input.min = fechaAR(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
+  input.addEventListener('change', () => {
+    if (input.value) alCambiar(input.value);
+  });
+  return input;
 }
 
 function conectarEstadoEnVivo() {
@@ -625,8 +645,11 @@ function conectarEstadoEnVivo() {
     // Se relee el log en vez de insertar la linea a mano: derivar la
     // transicion aca obligaria a mantener el estado previo en el navegador, y
     // los cambios de zona son lo bastante espaciados como para que una
-    // consulta mas no importe.
-    cargarLogZonas(update.id, view.logEl);
+    // consulta mas no importe. Solo si se esta mirando hoy: un dia pasado no
+    // cambia.
+    if (view.fechaEl.value === fechaAR()) {
+      cargarLogZonas(update.id, view.logEl, view.fechaEl.value);
+    }
   });
 }
 
@@ -696,13 +719,15 @@ async function init() {
       const logEl = document.createElement('div');
       logEl.className = 'log-zonas';
 
+      const fechaEl = crearSelectorFecha((fecha) => cargarLogZonas(dispositivo.id, logEl, fecha));
+
       const notificationControl = crearControlNotificaciones();
-      card.append(nombre, notificationControl, zonasEl, actualizadoEl, logEl);
+      card.append(nombre, notificationControl, zonasEl, actualizadoEl, fechaEl, logEl);
       listEl.appendChild(card);
 
-      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl });
+      zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl, fechaEl });
       cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl);
-      cargarLogZonas(dispositivo.id, logEl);
+      cargarLogZonas(dispositivo.id, logEl, fechaEl.value);
       setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl),
         ZONE_FALLBACK_REFRESH_MS);
       continue;
