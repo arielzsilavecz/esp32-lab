@@ -156,3 +156,21 @@ export async function notifyZoneChanges(device, previousState, currentState) {
     }
   }));
 }
+
+// Alertas de servidor: solo a quienes activaron alertas_servidor. No usa ni
+// actualiza last_notified_at (cooldown de la alarma); cada alerta tiene el suyo.
+export async function notifyServerAlert(title, body, tag) {
+  await configureVapid();
+  const { rows } = await pool.query(
+    'SELECT endpoint, subscription FROM push_subscriptions WHERE alertas_servidor = true'
+  );
+  const payload = JSON.stringify({ title, body, tag, url: '/' });
+  await Promise.all(rows.map(async ({ endpoint, subscription }) => {
+    try {
+      await webpush.sendNotification(subscription, payload, { TTL: PUSH_TTL_SECONDS, urgency: PUSH_URGENCY });
+    } catch (error) {
+      if (error.statusCode === 404 || error.statusCode === 410) return removeExpiredSubscription(endpoint);
+      console.error('No se pudo enviar una alerta de servidor:', error.message);
+    }
+  }));
+}

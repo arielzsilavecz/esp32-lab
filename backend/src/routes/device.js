@@ -4,6 +4,7 @@ import { requireDeviceToken } from '../deviceAuth.js';
 import { publishDeviceState } from '../stateEvents.js';
 import { notifyZoneChanges } from '../pushNotifications.js';
 import { claimCommandSql } from '../commandPolicy.js';
+import { alertarTemperatura } from '../serverAlerts.js';
 
 export const deviceRouter = Router();
 
@@ -82,6 +83,11 @@ deviceRouter.post('/estado', async (req, res) => {
   const update = result.rows[0];
   publishDeviceState(update);
   res.json({ ok: true });
+
+  if (update.tipo === 'servidor') {
+    void alertarTemperatura(update, update.estado)
+      .catch((error) => console.error('Fallo la alerta de temperatura:', error.message));
+  }
 
   // El reporte del ESP32 no debe demorarse ni fallar porque un proveedor Push
   // este caido. La notificacion continua en segundo plano despues del 200.

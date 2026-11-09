@@ -1,0 +1,12 @@
+[Unit]
+Description=NEO: limitar frecuencia maxima del CPU a 1,9 GHz (techo termico en la caja)
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 1900000 kHz es un escalon valido de acpi-cpufreq (ver scaling_available_frequencies).
+# Para subirlo, editar este valor y reinstalar; 2600000 = sin limite salvo boost.
+ExecStart=/bin/sh -c 'for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do echo 1900000 > "$f"; done'
+
+[Install]
+WantedBy=multi-user.target

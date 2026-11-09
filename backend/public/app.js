@@ -262,7 +262,7 @@ async function cargarLecturaServidor(dispositivoId, el) {
   const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
   const { estado, estado_actualizado_at } = await response.json();
   if (!estado) { el.textContent = 'Sin lecturas todavia.'; return; }
-  el.textContent = `CPU ${estado.cpu_c}°C · GPU ${estado.gpu_c}°C · carga ${estado.load1} · RAM ${estado.ram_pct}% · bateria ${estado.bateria_pct}%${estado.cargando ? ' (cargando)' : ''} · ${horaExactaAR(estado_actualizado_at)}`;
+  el.textContent = `CPU ${estado.cpu_c}°C · GPU ${estado.gpu_c}°C · carga ${estado.load1} · RAM ${estado.ram_pct}% · bateria ${estado.bateria_pct}% (${estado.enchufado === false ? 'a bateria' : 'enchufado'}) · ${horaExactaAR(estado_actualizado_at)}`;
 }
 
 async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl, temperaturaEl) {
@@ -318,6 +318,81 @@ async function enableNotifications(registration) {
 async function disableNotifications(registration) {
   const subscription = await registration.pushManager.getSubscription();
   if (subscription) await saveNotificationState(subscription, false);
+}
+
+function crearControlAlertasServidor() {
+  const manual = document.createElement('div');
+  manual.className = 'modo-afuera';
+  const copy = document.createElement('div');
+  const title = document.createElement('div');
+  title.className = 'modo-afuera-titulo';
+  title.textContent = 'Avisarme de NEO';
+  const status = document.createElement('div');
+  status.className = 'modo-afuera-estado';
+  status.textContent = 'Comprobando notificaciones...';
+  copy.append(title, status);
+
+  const toggleLabel = document.createElement('label');
+  toggleLabel.className = 'toggle';
+  toggleLabel.setAttribute('aria-label', 'Recibir alertas de temperatura y caida de NEO');
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.disabled = true;
+  toggle.setAttribute('role', 'switch');
+  const slider = document.createElement('span');
+  slider.className = 'toggle-slider';
+  toggleLabel.append(toggle, slider);
+  manual.append(copy, toggleLabel);
+
+  const textoActivo = 'Avisos si CPU >= 85°C o sin reportar 3 min';
+  const textoInactivo = 'Sin avisos de NEO en este dispositivo';
+
+  serviceWorkerRegistration.then(async (registration) => {
+    if (!registration || !('PushManager' in window) || !('Notification' in window)) {
+      status.textContent = 'Este navegador no admite notificaciones';
+      return;
+    }
+    try {
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const response = await api('/api/notificaciones/estado', {
+          method: 'POST',
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        toggle.checked = (await responseJson(response)).alertasServidor === true;
+      }
+      status.textContent = toggle.checked ? textoActivo : textoInactivo;
+      toggle.disabled = false;
+    } catch (error) {
+      status.textContent = error.message;
+    }
+
+    toggle.addEventListener('change', async () => {
+      const requested = toggle.checked;
+      toggle.disabled = true;
+      status.textContent = requested ? 'Activando...' : 'Desactivando...';
+      try {
+        const subscription = requested
+          ? await getOrCreatePushSubscription(registration)
+          : await registration.pushManager.getSubscription();
+        if (subscription) {
+          const response = await api('/api/notificaciones/alertas-servidor', {
+            method: 'PUT',
+            body: JSON.stringify({ subscription, enabled: requested }),
+          });
+          await responseJson(response);
+        }
+        status.textContent = requested ? textoActivo : textoInactivo;
+      } catch (error) {
+        toggle.checked = !requested;
+        status.textContent = error.message;
+      } finally {
+        toggle.disabled = false;
+      }
+    });
+  });
+
+  return manual;
 }
 
 function crearControlNotificaciones() {
@@ -746,7 +821,7 @@ async function init() {
       const lecturaEl = document.createElement('div');
       lecturaEl.className = 'historial';
       card.classList.add('compacto');
-      card.append(nombre, lecturaEl);
+      card.append(nombre, lecturaEl, crearControlAlertasServidor());
       listEl.appendChild(card);
       cargarLecturaServidor(dispositivo.id, lecturaEl);
       setInterval(() => cargarLecturaServidor(dispositivo.id, lecturaEl), 30000);

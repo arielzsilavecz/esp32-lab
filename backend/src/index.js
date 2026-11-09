@@ -10,6 +10,7 @@ import { deviceRouter } from './routes/device.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { webauthnRouter } from './routes/webauthn.js';
 import { iniciarRetencion } from './retencion.js';
+import { iniciarVigilanteServidor } from './serverAlerts.js';
 
 dotenv.config();
 
@@ -38,4 +39,5 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`esp32-lab backend escuchando en :${port}`);
   iniciarRetencion();
+  iniciarVigilanteServidor();
 });

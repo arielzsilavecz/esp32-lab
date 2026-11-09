@@ -32,7 +32,26 @@
       "Bash(node -e ' *)",
       "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s\\);for\\(const k of Object.keys\\(o\\).filter\\(k=>/PUBLIC|PROXY/.test\\(k\\)\\)\\)console.log\\(k, k.includes\\(\"URL\"\\)?\"\\(url oculta\\)\":o[k]\\)}\\)')",
       "Bash(railway logs *)",
-      "Bash(curl -s -o /dev/null -w \"prod login HTTP %{http_code}\\\\n\" https://casa-piotti.up.railway.app/login.html)"
+      "Bash(curl -s -o /dev/null -w \"prod login HTTP %{http_code}\\\\n\" https://casa-piotti.up.railway.app/login.html)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'echo \"--temp \\(ultimas 8\\)\"; sudo tail -8 /var/lib/neo-monitor/temp.csv | cut -d, -f1-5; echo \"--max/prom\"; sudo awk -F, \"NR>1{if\\(\\\\$2>m\\)m=\\\\$2;s+=\\\\$2;n++}END{printf \\\\\"n=%d max=%.1f prom=%.1f\\\\n\\\\\",n,m,s/n}\" /var/lib/neo-monitor/temp.csv; echo --ip; ip -br a | grep -E \"enp2s0|wlp1s0\" | cut -c1-60; echo --ha; docker ps --format \"{{.Names}} {{.Status}}\"; curl -s -o /dev/null -w \"HA %{http_code}\\\\n\" localhost:8123; systemctl is-active neo-monitor.timer; echo --failed; systemctl --failed --no-legend')",
+      "Bash(railway deployment *)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y smartmontools >/dev/null 2>&1; echo \"--sdb\"; sudo smartctl -H -i /dev/sdb | grep -E \"Model|Capacity|Rotation|SMART overall|Power_On\" ; sudo smartctl -A /dev/sdb | grep -E \"Reallocated_Sector|Power_On_Hours|Current_Pending|Offline_Uncorrectable|Temperature|Start_Stop|Spin_Retry\"; echo \"--sda\"; sudo smartctl -H /dev/sda | grep -E \"SMART overall\"; sudo smartctl -A /dev/sda | grep -iE \"Wear|Percent_Life|Reallocated|Power_On_Hours\"')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'ls /sys/class/power_supply/BAT0/ | tr \"\\\\n\" \" \"; echo; ls /sys/class/power_supply/BAT0/charge_control_* 2>&1; cat /sys/class/power_supply/BAT0/{status,capacity,cycle_count,technology} 2>&1; ls /sys/bus/platform/drivers/ 2>/dev/null | grep -i asus; command -v tlp')",
+      "Bash(curl -s https://casa-piotti.up.railway.app/app.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat /sys/class/power_supply/BAT0/charge_control_end_threshold; sudo journalctl -u neo-monitor --since \"-10min\" --no-pager | grep -ciE \"fallo|error\"; sudo tail -2 /var/lib/neo-monitor/temp.csv | cut -d, -f1-3')",
+      "Bash(curl -s -o /dev/null -w \"prod %{http_code}\\\\n\" https://casa-piotti.up.railway.app/login.html)",
+      "Bash(curl -s -o /dev/null -w \"api sin sesion %{http_code}\\\\n\" https://casa-piotti.up.railway.app/api/dispositivos)",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=3 ariel@192.168.100.135 true)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sleep 20; uptime -p; echo \"umbral=$\\(cat /sys/class/power_supply/BAT0/charge_control_end_threshold\\)\"; echo \"estado=$\\(cat /sys/class/power_supply/BAT0/status\\) $\\(cat /sys/class/power_supply/BAT0/capacity\\)%\"; systemctl is-active battery-limit.service neo-monitor.timer; docker ps --format \"{{.Names}} {{.Status}}\"')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sudo tail -8 /var/lib/neo-monitor/temp.csv | cut -d, -f1-5; echo; sudo journalctl -k --since \"-10min\" --no-pager | grep -iE \"thermal|throttl|temperature\" | tail -3; uptime; top -bn1 -o %CPU | sed -n 7,11p')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'for i in 1 2 3 4 5 6; do echo \"$\\(date +%T\\) cpu=$\\(awk \"{print \\\\$1/1000}\" /sys/class/hwmon/hwmon3/temp1_input\\) acpi=$\\(awk \"{print \\\\$1/1000}\" /sys/class/thermal/thermal_zone0/temp\\) f=$\\(awk \"{s+=\\\\$1}END{print int\\(s/NR/1000\\)}\" /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq\\) load=$\\(cut -d\" \" -f1 /proc/loadavg\\)\"; sleep 5; done')",
+      "Bash(sed -i 's/cargando=false; \\\\[ \"\\\\$\\(cat \\\\/sys\\\\/class\\\\/power_supply\\\\/AC\\\\*\\\\/online\\)\" = 1 \\\\] \\\\&\\\\& cargando=true/enchufado=false; [ \"$\\(cat \\\\/sys\\\\/class\\\\/power_supply\\\\/AC*\\\\/online\\)\" = 1 ] \\\\&\\\\& enchufado=true/; s/,cargando\"/,enchufado\"/; s/,\\\\$cargando$/,$enchufado/; s/\\\\\\\\\"cargando\\\\\\\\\":\\\\$cargando/\\\\\\\\\"enchufado\\\\\\\\\":$enchufado/' tools/neo-monitor/neo-monitor.sh)",
+      "Bash(sed -i \"s/\\\\${estado.cargando ? ' \\(cargando\\)' : ''}/ \\(\\\\${estado.enchufado === false ? 'a bateria' : 'enchufado'}\\)/\" backend/public/app.js)",
+      "Bash(bash -n tools/neo-monitor/neo-monitor.sh)",
+      "Bash(sed -i '23s/\\\\$cargando/$enchufado/' neo-monitor.sh)",
+      "Bash(bash -n neo-monitor.sh)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/neo-monitor.sh')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'set -e; sudo install -m 755 /tmp/neo-monitor.sh /usr/local/bin/; sudo sed -i \"1s/,cargando$/,enchufado/\" /var/lib/neo-monitor/temp.csv; sudo systemctl start neo-monitor.service; sudo journalctl -u neo-monitor -n 3 --no-pager | tail -2; sudo head -1 /var/lib/neo-monitor/temp.csv; sudo tail -1 /var/lib/neo-monitor/temp.csv')"
     ]
   }
 }

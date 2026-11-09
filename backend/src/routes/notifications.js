@@ -19,7 +19,7 @@ notificationsRouter.post('/estado', async (req, res) => {
   }
 
   const result = await pool.query(
-    `SELECT enabled, schedule_enabled, schedule_days,
+    `SELECT enabled, alertas_servidor, schedule_enabled, schedule_days,
             to_char(schedule_start, 'HH24:MI') AS schedule_start,
             to_char(schedule_end, 'HH24:MI') AS schedule_end
      FROM push_subscriptions
@@ -29,6 +29,7 @@ notificationsRouter.post('/estado', async (req, res) => {
   const saved = result.rows[0];
   res.json({
     enabled: saved?.enabled === true,
+    alertasServidor: saved?.alertas_servidor === true,
     schedule: {
       enabled: saved?.schedule_enabled === true,
       days: saved?.schedule_days || [1, 2, 3, 4, 5],
@@ -102,4 +103,26 @@ notificationsRouter.put('/programacion', async (req, res) => {
   );
 
   res.json({ enabled, days: normalizedDays, start, end });
+});
+
+notificationsRouter.put('/alertas-servidor', async (req, res) => {
+  const { subscription, enabled } = req.body || {};
+  const valid = subscription
+    && typeof subscription.endpoint === 'string'
+    && typeof subscription.keys?.p256dh === 'string'
+    && typeof subscription.keys?.auth === 'string'
+    && typeof enabled === 'boolean';
+  if (!valid) return res.status(400).json({ error: 'Suscripcion invalida' });
+
+  await pool.query(
+    `INSERT INTO push_subscriptions (endpoint, usuario_id, subscription, alertas_servidor, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (endpoint) DO UPDATE SET
+       usuario_id = EXCLUDED.usuario_id,
+       subscription = EXCLUDED.subscription,
+       alertas_servidor = EXCLUDED.alertas_servidor,
+       updated_at = now()`,
+    [subscription.endpoint, req.session.userId, subscription, enabled]
+  );
+  res.json({ enabled });
 });
