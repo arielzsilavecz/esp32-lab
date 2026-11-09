@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=8 ariel@192.168.100.134 'hostnamectl | head -5; uname -r; df -h /; free -m; docker --version; docker compose version; systemctl is-enabled docker; cat /etc/systemd/logind.conf.d/99-server.conf; systemctl is-enabled sleep.target suspend.target; sensors 2>/dev/null | head -20; sudo -n ufw status 2>&1 | head -3; lsblk -f')",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=8 ariel@192.168.100.134 'hostnamectl | head -5; uname -r; df -h /; free -m; echo --docker; docker --version; docker compose version; systemctl is-enabled docker; echo --logind; cat /etc/systemd/logind.conf.d/99-server.conf; systemctl is-enabled sleep.target suspend.target hibernate.target hybrid-sleep.target; echo --temp; cat /sys/class/thermal/thermal_zone*/temp; echo --ufw; sudo -n ufw status 2>&1 | head -3; echo --blk; lsblk -f; echo --net; ip -br a; timedatectl | grep -E \"zone|synchronized\"; echo --bat; cat /sys/class/power_supply/BAT*/{status,capacity,energy_full,energy_full_design} 2>&1; echo --cpu; grep -m1 flags /proc/cpuinfo | grep -oE \"avx2?|fma|sse4_2|f16c\" | sort -u | tr \"\\\\n\" \" \"')",
+      "Read(//c/Users/ariel/.ssh/**)",
+      "Bash(ssh -v -o BatchMode=yes -o ConnectTimeout=8 ariel@192.168.100.134 true)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.134 'sudo -n true && echo SUDO_OK; id; docker ps -a; echo --ufw; sudo ufw status; echo --smart; sudo smartctl -H /dev/sdb 2>&1 | tail -5; echo --daemon; cat /etc/docker/daemon.json 2>&1; ls ~/neo 2>&1')",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=8 ariel@192.168.100.134 'cat /sys/class/power_supply/BAT*/status /sys/class/power_supply/BAT*/capacity; cat /sys/class/power_supply/AC*/online 2>&1; echo --net; ip -br a; ip route; ethtool enp2s0 2>/dev/null | grep -E \"Speed|Link detected\"; nmcli -t -f DEVICE,STATE,CONNECTION dev 2>&1; echo --dns; resolvectl status 2>&1 | grep -E \"Current DNS|DNS Servers\" | head -3; ping -c3 -W2 1.1.1.1 | tail -2; echo --docker; docker ps --format \"{{.Names}} {{.Status}}\"; curl -s -o /dev/null -w \"HA HTTP %{http_code}\\\\n\" http://localhost:8123')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.134 'ip -s link show enp2s0 | head -6; echo --dmesg; sudo dmesg | grep -iE \"enp2s0|r8169|eth0|realtek|link is|firmware\" | tail -15; echo --driver; ethtool -i enp2s0 2>&1 | head -4; echo --netplan; sudo cat /etc/netplan/*.yaml | sed \"s/password:.*/password: <oculto>/;s/\\\\\"[^\\\\\"]*\\\\\": *{}/<ssid>/\" ')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.134 'sudo ip link set enp2s0 up; sleep 6; ethtool enp2s0 | grep -E \"Speed|Duplex|Link detected\"; ip -br link show enp2s0; sudo dmesg | grep -i enp2s0 | tail -3')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.134 'set -e *)",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=8 ariel@192.168.100.134 'ip -br a; ip route; ping -c2 -W2 1.1.1.1 | tail -1; curl -s -o /dev/null -w \"HA %{http_code}\\\\n\" localhost:8123')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sudo systemctl reboot')",
+      "Bash(ssh -o BatchMode=yes -o ConnectTimeout=5 ariel@192.168.100.135 'uptime -p; ip -br a | grep -E \"enp2s0|wlp1s0\"; ip route | grep default; docker ps --format \"{{.Names}} {{.Status}}\"; curl -s -o /dev/null -w \"HA %{http_code}\\\\n\" localhost:8123; timedatectl | grep \"Time zone\"')",
+      "Bash(break)",
+      "Bash(ssh-keyscan -t ed25519 192.168.100.135)",
+      "Bash(ssh-keygen -lf -)",
+      "Bash(ssh-keygen -F 192.168.100.134 -l)",
+      "Bash(railway whoami *)",
+      "Bash(railway status *)",
+      "Bash(railway list *)",
+      "Bash(railway link *)",
+      "Bash(railway domain *)",
+      "Bash(railway service *)",
+      "Bash(railway variables *)",
+      "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s\\);console.log\\(Object.keys\\(o\\).filter\\(k=>/URL|HOST|PORT/.test\\(k\\)\\).join\\(\"\\\\n\"\\)\\)}\\)')",
+      "Bash(rm -f /tmp/neo_token.tmp)",
+      "Read(//tmp/**)",
+      "Bash(railway ssh *)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sudo tail -4 /var/lib/neo-monitor/temp.csv; top -bn1 -o %CPU | sed -n 7,12p')",
+      "Bash(node -e ' *)",
+      "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{const o=JSON.parse\\(s\\);for\\(const k of Object.keys\\(o\\).filter\\(k=>/PUBLIC|PROXY/.test\\(k\\)\\)\\)console.log\\(k, k.includes\\(\"URL\"\\)?\"\\(url oculta\\)\":o[k]\\)}\\)')",
+      "Bash(railway logs *)",
+      "Bash(curl -s -o /dev/null -w \"prod login HTTP %{http_code}\\\\n\" https://casa-piotti.up.railway.app/login.html)"
+    ]
+  }
+}

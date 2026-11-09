@@ -258,6 +258,13 @@ function mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estad
   }
 }
 
+async function cargarLecturaServidor(dispositivoId, el) {
+  const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
+  const { estado, estado_actualizado_at } = await response.json();
+  if (!estado) { el.textContent = 'Sin lecturas todavia.'; return; }
+  el.textContent = `CPU ${estado.cpu_c}°C · GPU ${estado.gpu_c}°C · carga ${estado.load1} · RAM ${estado.ram_pct}% · bateria ${estado.bateria_pct}%${estado.cargando ? ' (cargando)' : ''} · ${horaExactaAR(estado_actualizado_at)}`;
+}
+
 async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl, temperaturaEl) {
   const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
   const { estado, estado_actualizado_at } = await response.json();
@@ -730,6 +737,19 @@ async function init() {
       cargarLogZonas(dispositivo.id, logEl, fechaEl.value);
       setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl),
         ZONE_FALLBACK_REFRESH_MS);
+      continue;
+    }
+
+    // Servidor (NEO): solo lectura, sin boton. Sin esta rama caia en la de
+    // accion y se dibujaba como un porton con "Activar" que no hace nada.
+    if (dispositivo.tipo === 'servidor') {
+      const lecturaEl = document.createElement('div');
+      lecturaEl.className = 'historial';
+      card.classList.add('compacto');
+      card.append(nombre, lecturaEl);
+      listEl.appendChild(card);
+      cargarLecturaServidor(dispositivo.id, lecturaEl);
+      setInterval(() => cargarLecturaServidor(dispositivo.id, lecturaEl), 30000);
       continue;
     }
 

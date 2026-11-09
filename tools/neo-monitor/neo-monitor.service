@@ -1,0 +1,7 @@
+[Unit]
+Description=NEO: lectura de temperatura y estado hacia el backend
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/neo-monitor.sh
