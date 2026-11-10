@@ -1918,48 +1918,76 @@ button:disabled {
 .camara-controles {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 12px;
 }
 
-/* Pad de giro en cruz: arriba / izquierda-derecha / abajo. */
+/* Flechas de giro sobre la imagen, una por borde. Ocultas hasta tocar la
+   imagen (data-flechas, desde camaras.js), al pasar el mouse o al llegar con Tab. */
 .camara-pad {
-  display: grid;
-  grid-template-columns: repeat(3, 44px);
-  grid-template-rows: repeat(3, 44px);
-  gap: 2px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.camara-marco[data-flechas="visibles"] .camara-pad,
+.camara-pad:focus-within {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .camara-marco:hover .camara-pad {
+    opacity: 1;
+  }
+}
+
+.camara-marco[data-flechas="visibles"] .flecha,
+.camara-pad:focus-within .flecha,
+.camara-marco:hover .flecha {
+  pointer-events: auto;
 }
 
 .camara-pad .flecha {
+  position: absolute;
   width: 44px;
   min-height: 44px;
   margin: 0;
   opacity: 1;
-  color: var(--ink);
-  background: var(--panel-2);
-  border-radius: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
 }
 
 .camara-pad .flecha svg {
-  width: 20px;
-  height: 20px;
-  stroke-width: 2.2;
+  width: 22px;
+  height: 22px;
+  stroke-width: 2.4;
 }
 
-.flecha-arriba { grid-area: 1 / 2; }
-.flecha-izquierda { grid-area: 2 / 1; }
-.flecha-derecha { grid-area: 2 / 3; }
-.flecha-abajo { grid-area: 3 / 2; }
+.flecha-arriba { top: 6px; left: 50%; transform: translateX(-50%); }
+.flecha-abajo { bottom: 6px; left: 50%; transform: translateX(-50%); }
+.flecha-izquierda { left: 6px; top: 50%; transform: translateY(-50%); }
+.flecha-derecha { right: 6px; top: 50%; transform: translateY(-50%); }
 
 @media (hover: hover) {
   .camara-pad .flecha:not(:disabled):hover {
-    background: #33332f;
+    background: rgba(0, 0, 0, 0.65);
   }
 }
 
+.camara-pad .flecha:not(:disabled):active {
+  background: rgba(0, 0, 0, 0.75);
+}
+
 .camara-pad .flecha:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
+}
+
+.camara-marco {
+  cursor: pointer;
 }
 
 .camara-acciones {

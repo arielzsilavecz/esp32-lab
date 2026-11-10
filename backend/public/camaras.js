@@ -74,9 +74,31 @@ function crearTarjetaCamara(dispositivo, card, nombre) {
     boton.setAttribute('aria-label', etiqueta);
     boton.title = etiqueta;
     boton.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${trazo}"/></svg>`;
-    boton.addEventListener('click', () => girar(direccion));
+    boton.addEventListener('click', (evento) => {
+      evento.stopPropagation(); // el toque en la flecha no debe ocultar las flechas
+      mostrarFlechas();
+      girar(direccion);
+    });
     pad.append(boton);
     return boton;
+  });
+  // Las flechas van sobre la imagen, ocultas: aparecen al tocarla y se esconden
+  // solas a los 4 s sin uso (con mouse tambien al pasar por encima; ver CSS).
+  marco.append(pad);
+  let ocultarFlechas = null;
+  function mostrarFlechas() {
+    marco.dataset.flechas = 'visibles';
+    clearTimeout(ocultarFlechas);
+    ocultarFlechas = setTimeout(() => { delete marco.dataset.flechas; }, 4000);
+  }
+  marco.addEventListener('click', () => {
+    if (!activa) return;
+    if (marco.dataset.flechas) {
+      clearTimeout(ocultarFlechas);
+      delete marco.dataset.flechas;
+    } else {
+      mostrarFlechas();
+    }
   });
   const acciones = document.createElement('div');
   acciones.className = 'camara-acciones';
@@ -87,13 +109,14 @@ function crearTarjetaCamara(dispositivo, card, nombre) {
   botonDetener.type = 'button';
   botonDetener.textContent = 'Detener';
   acciones.append(botonSeguir, botonDetener);
-  controles.append(pad, acciones);
+  controles.append(acciones);
 
   panel.append(marco, estado, controles);
   card.append(fila, aviso, panel);
 
   function plegar(mensaje) {
     panel.hidden = true;
+    delete marco.dataset.flechas;
     imagen.hidden = true;
     conectando.hidden = false;
     botonVer.hidden = false;
