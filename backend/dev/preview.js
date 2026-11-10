@@ -22,6 +22,7 @@ const dispositivos = [
   { id: 4, nombre: 'Luz 1', tipo: 'luz' },
   { id: 5, nombre: 'Luz 2', tipo: 'luz' },
   { id: 6, nombre: 'Disyuntor oficina', tipo: 'disyuntor' },
+  { id: 7, nombre: 'Cámara entrada', tipo: 'camara' },
 ];
 const estados = {
   2: { zonas: [false, false, true, false, false, false], temperaturaC: 41.3 },
@@ -31,6 +32,10 @@ const estados = {
   6: { encendido: true, potencia_w: 118, tension_v: 227.1, corriente_a: 0.52, energia_kwh: 424.08 },
 };
 const actualizado = {};
+// Camara simulada: hasta cuando hay transmision pedida, y desde cuando (para
+// imitar los ~2 s que tarda NEO en arrancar).
+let camaraHasta = 0;
+const camaraDesde = () => camaraHasta - 120_000;
 
 // Canal en vivo, igual que /api/dispositivos/eventos del backend real.
 const clientesSse = new Set();
@@ -155,6 +160,22 @@ http.createServer(async (req, res) => {
   if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/historial$/))) {
     const t = Date.now() - 3 * 3600000;
     return json(res, 200, [{ id: 9, tipo_comando: 'activar', activado_por: 'Ariel', created_at: new Date(t).toISOString(), consumido_at: new Date(t + 900).toISOString(), expires_at: new Date(t + 5000).toISOString() }]);
+  }
+  // Camara: "ver" habilita 2 min de cuadros; cada cuadro es un SVG con la hora
+  // (la vista previa no tiene camara real).
+  if ((m = p.match(/^\/api\/dispositivos\/7\/(comandos|imagen)$/))) {
+    if (m[1] === 'comandos') {
+      const { tipo_comando: tipo } = await leerCuerpo(req);
+      if (tipo === 'ver') camaraHasta = Date.now() + 120_000;
+      if (tipo === 'detener') camaraHasta = 0;
+      // "mover": en la vista previa no hay camara que girar; solo se acepta.
+      return json(res, 201, { id: Date.now() });
+    }
+    if (Date.now() > camaraHasta || Date.now() - camaraDesde() < 1500) { res.writeHead(204); return res.end(); }
+    const hora = new Date().toLocaleTimeString('es-AR', { hourCycle: 'h23' });
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#3b4a3a"/><rect y="230" width="640" height="130" fill="#56724f"/><g stroke="#c9ccc4" stroke-width="4">${Array.from({ length: 32 }, (_, i) => `<line x1="${i * 20 + 10}" y1="60" x2="${i * 20 + 10}" y2="235"/>`).join('')}</g><text x="16" y="30" fill="#fff" font-family="monospace" font-size="20">VISTA PREVIA ${hora}</text></svg>`;
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'X-Capturada': String(Date.now()), 'Cache-Control': 'no-store' });
+    return res.end(svg);
   }
   if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/comandos$/)) && req.method === 'POST') {
     const { tipo_comando: tipo, parametros } = await leerCuerpo(req);

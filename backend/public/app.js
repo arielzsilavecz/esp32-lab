@@ -1248,7 +1248,7 @@ function crearNombreEditable(dispositivo) {
 
 // Orden en celular: lo que se toca a diario arriba. En desktop la alarma ocupa
 // la columna principal y el resto va a la lateral (ver .columna en style.css).
-const ORDEN_TIPOS = { porton: 1, luz: 2, alarma: 3, disyuntor: 4, servidor: 5 };
+const ORDEN_TIPOS = { porton: 1, camara: 2, luz: 3, alarma: 4, disyuntor: 5, servidor: 6 };
 
 async function init() {
   const response = await api('/api/dispositivos');
@@ -1318,6 +1318,12 @@ async function init() {
       cargarLogZonas(dispositivo.id, logEl, fechaEl.value);
       setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl),
         ZONE_FALLBACK_REFRESH_MS);
+      continue;
+    }
+
+    if (dispositivo.tipo === 'camara') {
+      crearTarjetaCamara(dispositivo, card, nombre);
+      listEl.appendChild(card);
       continue;
     }
 

@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { pool } from '../db.js';
+import { esJpeg, guardarCuadro } from '../camaraCuadros.js';
 import { requireDeviceToken } from '../deviceAuth.js';
 import { publishDeviceState } from '../stateEvents.js';
 import { notifyZoneChanges } from '../pushNotifications.js';
@@ -21,6 +22,19 @@ deviceRouter.get('/ping', (_req, res) => {
   // completa antes de conservar el socket. Con 204 dejaba un socket TLS que
   // en la siguiente request aparecia conectado, pero ya no era reutilizable.
   res.status(200).type('text/plain').send('ok');
+});
+
+// Cuadro en vivo de una camara (JPEG crudo). Solo llega mientras alguien pidio
+// ver; queda en memoria y lo lee GET /api/dispositivos/:id/imagen.
+deviceRouter.post('/imagen', express.raw({ type: 'image/jpeg', limit: '400kb' }), (req, res) => {
+  if (req.dispositivo.tipo !== 'camara') {
+    return res.status(403).json({ error: 'Solo las cámaras suben imágenes' });
+  }
+  if (!esJpeg(req.body)) {
+    return res.status(400).json({ error: 'Se esperaba un JPEG' });
+  }
+  guardarCuadro(req.dispositivo.id, req.body);
+  res.status(204).end();
 });
 
 // La ESP32 llama esto cada ~1s (ver ADR-0006 por que 1s no cambia el costo).

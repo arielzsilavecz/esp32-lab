@@ -4,6 +4,7 @@ import { requireAuth } from '../auth.js';
 import { subscribeToDeviceState } from '../stateEvents.js';
 import { createCommandSql } from '../commandPolicy.js';
 import { validarAjusteLuz } from '../lightParams.js';
+import { borrarCuadro, leerCuadro, validarMovimiento } from '../camaraCuadros.js';
 
 // Lista cerrada de comandos por tipo: tipo_comando es texto libre en la base, asi
 // que sin esto cualquier sesion podria encolar ordenes arbitrarias.
@@ -11,6 +12,8 @@ const COMANDOS_PERMITIDOS = {
   porton: ['activar'],
   luz: ['encender', 'apagar', 'alternar', 'ajustar'],
   disyuntor: ['encender', 'apagar'],
+  // ver: transmitir 2 min (o renovarlos); detener: cortar ya; mover: giro PTZ.
+  camara: ['ver', 'detener', 'mover'],
 };
 
 export const dispositivosRouter = Router();
@@ -104,10 +107,11 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     }
   }
 
-  // Solo "ajustar" lleva valores; cualquier otro comando ignora lo que venga.
+  // Solo "ajustar" (luz) y "mover" (camara) llevan valores; el resto ignora lo que venga.
   let parametros = null;
-  if (tipoComando === 'ajustar') {
-    const ajuste = validarAjusteLuz(req.body?.parametros);
+  if (tipoComando === 'ajustar' || tipoComando === 'mover') {
+    const validar = tipoComando === 'ajustar' ? validarAjusteLuz : validarMovimiento;
+    const ajuste = validar(req.body?.parametros);
     if (ajuste.error) return res.status(400).json({ error: ajuste.error });
     parametros = JSON.stringify(ajuste.parametros);
   }
@@ -119,6 +123,8 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
   if (result.rowCount === 0) {
     return res.status(409).json({ error: `${tipo === 'porton' ? 'ESP32' : 'Dispositivo'} sin conexión reciente. La orden no se guardó.` });
   }
+  // Al detener, la imagen deja de estar disponible ya, no a los 15 s.
+  if (tipo === 'camara' && tipoComando === 'detener') borrarCuadro(id);
   res.status(201).json(result.rows[0]);
 });
 
@@ -144,6 +150,16 @@ dispositivosRouter.get('/:id/estado', async (req, res) => {
 // ?fecha=YYYY-MM-DD devuelve el dia completo en hora de Argentina (hoy si no
 // viene), mas el ultimo snapshot anterior a ese dia: sin el, la primera
 // transicion del dia no tendria contra que compararse.
+// Ultimo cuadro en vivo de una camara. ?despues=<ms>: 204 si no hay uno mas
+// nuevo (la pagina pregunta seguido y no baja la misma imagen dos veces).
+dispositivosRouter.get('/:id/imagen', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const cuadro = leerCuadro(req.params.id);
+  // 204 tambien sin cuadro: mientras NEO arranca "todavia no hay" no es un error.
+  if (!cuadro || cuadro.at <= (Number(req.query.despues) || 0)) return res.status(204).end();
+  res.set('X-Capturada', String(cuadro.at)).type('image/jpeg').send(cuadro.imagen);
+});
+
 // Consumo por dia de un mes (vista mensual del disyuntor): ?mes=YYYY-MM.
 // kWh del dia = ultimo contador del dia menos el ultimo del dia anterior con
 // datos (lag), asi no se pierde el consumo entre la ultima lectura de un dia y

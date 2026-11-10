@@ -6,11 +6,16 @@ Por cada dispositivo configurado (luz o disyuntor), un hilo:
   - la ejecuta en Home Assistant si esta en la lista cerrada,
   - reporta el estado al backend: al cambiar, y cada cierto tiempo.
 
+Las camaras (kind "camara", ADR-0012) no pasan por Home Assistant: con la orden
+"ver" se lanza ffmpeg sobre su RTSP y se suben cuadros JPEG al backend durante
+2 min (o hasta "detener"). Sin pedido no hay ffmpeg ni trafico.
+
 Solo biblioteca estandar. Config en /etc/neo-bridge.json y el token de Home
 Assistant en /etc/neo-bridge-ha.token (ambos root, 600, fuera del repo).
 """
 import http.client
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -116,13 +121,15 @@ class Backend:
         self.headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         self.conn = None
 
-    def _pedir(self, metodo, ruta, cuerpo=None):
-        datos = json.dumps(cuerpo) if cuerpo is not None else None
+    def _pedir(self, metodo, ruta, cuerpo=None, tipo=None):
+        # bytes (un JPEG) van crudos con su tipo; el resto como JSON.
+        datos = cuerpo if isinstance(cuerpo, bytes) else (json.dumps(cuerpo) if cuerpo is not None else None)
+        headers = {**self.headers, "Content-Type": tipo} if tipo else self.headers
         for intento in (1, 2):
             try:
                 if self.conn is None:
                     self.conn = http.client.HTTPSConnection(self.host, timeout=10)
-                self.conn.request(metodo, ruta, body=datos, headers=self.headers)
+                self.conn.request(metodo, ruta, body=datos, headers=headers)
                 resp = self.conn.getresponse()
                 texto = resp.read()
                 return resp.status, (json.loads(texto) if texto and resp.status == 200 else None)
@@ -139,6 +146,146 @@ class Backend:
 
     def reportar(self, estado):
         return self._pedir("POST", "/api/device/estado", {"estado": estado})
+
+    def subir_imagen(self, jpeg):
+        return self._pedir("POST", "/api/device/imagen", jpeg, tipo="image/jpeg")
+
+
+def extraer_jpegs(buffer):
+    """Separa los JPEG completos de un flujo MJPEG (de FF D8 a FF D9).
+    Devuelve (cuadros, resto). FF D9 no aparece dentro de los datos de un JPEG
+    de ffmpeg: los FF del contenido se codifican como FF 00."""
+    cuadros = []
+    while True:
+        inicio = buffer.find(b"\xff\xd8")
+        fin = buffer.find(b"\xff\xd9", inicio + 2) if inicio >= 0 else -1
+        if inicio < 0 or fin < 0:
+            return cuadros, buffer[inicio:] if inicio >= 0 else b""
+        cuadros.append(buffer[inicio:fin + 2])
+        buffer = buffer[fin + 2:]
+
+
+VER_SEGUNDOS = 120  # corte automatico: la pagina renueva con "Seguir mirando"
+
+
+class Transmision:
+    """ffmpeg -> cuadros JPEG -> backend, solo mientras haya un pedido vigente."""
+
+    def __init__(self, dispositivo, url):
+        self.dispositivo = dispositivo
+        self.url = url
+        self.hasta = 0.0
+        self.hilo = None
+
+    def activa(self):
+        return time.monotonic() < self.hasta
+
+    def ver(self):
+        self.hasta = time.monotonic() + VER_SEGUNDOS
+        if self.hilo is None or not self.hilo.is_alive():
+            self.hilo = threading.Thread(target=self._correr, daemon=True)
+            self.hilo.start()
+
+    def detener(self):
+        self.hasta = 0.0
+
+    def _correr(self):
+        # Conexion propia: http.client no se comparte entre hilos.
+        backend = Backend(self.url, self.dispositivo["token"])
+        nombre = self.dispositivo["nombre"]
+        while self.activa():
+            # 2 cuadros/s de la calidad secundaria (640x360): decodificar 1080p
+            # todo el tiempo no entra en el CPU de NEO.
+            proceso = subprocess.Popen(
+                ["ffmpeg", "-nostdin", "-loglevel", "error", "-rtsp_transport", "tcp",
+                 "-timeout", "10000000", "-i", self.dispositivo["rtsp"],
+                 "-an", "-vf", "fps=2", "-q:v", "7", "-f", "image2pipe", "-c:v", "mjpeg", "-"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            log(nombre, "transmitiendo")
+            pendiente = b""
+            try:
+                while self.activa():
+                    trozo = proceso.stdout.read1(65536)
+                    if not trozo:
+                        break  # ffmpeg termino (camara caida): se relanza si sigue el pedido
+                    cuadros, pendiente = extraer_jpegs(pendiente + trozo)
+                    for cuadro in cuadros:
+                        backend.subir_imagen(cuadro)
+            except Exception as error:  # noqa: BLE001
+                log(nombre, "error transmitiendo:", error)
+            finally:
+                proceso.terminate()
+                try:
+                    proceso.wait(5)
+                except subprocess.TimeoutExpired:
+                    proceso.kill()
+            if self.activa():
+                time.sleep(3)
+        log(nombre, "transmision detenida")
+
+
+# Giro PTZ: pulso de ContinuousMove y Stop. Medido en la camara de la entrada:
+# 1 s a velocidad 0,6 corre ~1/3 del cuadro; 0,4 s a 0,5 es un paso controlable.
+GIROS = {"arriba": (0, 0.5), "abajo": (0, -0.5), "izquierda": (-0.5, 0), "derecha": (0.5, 0)}
+GIRO_SEGUNDOS = 0.4
+
+
+def onvif_ptz(url_ptz, cuerpo):
+    sobre = ('<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" '
+             'xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">'
+             f'<s:Body>{cuerpo}</s:Body></s:Envelope>')
+    req = urllib.request.Request(url_ptz, data=sobre.encode(), headers={"Content-Type": "application/soap+xml"})
+    with urllib.request.urlopen(req, timeout=8) as resp:
+        return resp.read()
+
+
+def girar(dispositivo, direccion):
+    x, y = GIROS[direccion]  # direccion ya validada: KeyError si no
+    perfil = dispositivo.get("perfil", "Profile_1")
+    onvif_ptz(dispositivo["onvif_ptz"], f'<tptz:ContinuousMove><tptz:ProfileToken>{perfil}</tptz:ProfileToken>'
+                                        f'<tptz:Velocity><tt:PanTilt x="{x}" y="{y}"/></tptz:Velocity></tptz:ContinuousMove>')
+    try:
+        time.sleep(GIRO_SEGUNDOS)
+    finally:
+        # Frenar siempre: una camara que queda girando es peor que un pulso perdido.
+        onvif_ptz(dispositivo["onvif_ptz"], f'<tptz:Stop><tptz:ProfileToken>{perfil}</tptz:ProfileToken>'
+                                            '<tptz:PanTilt>true</tptz:PanTilt><tptz:Zoom>true</tptz:Zoom></tptz:Stop>')
+
+
+def atender_camara(dispositivo, url):
+    nombre = dispositivo["nombre"]
+    backend = Backend(url, dispositivo["token"])
+    transmision = Transmision(dispositivo, url)
+    ultimo_estado, ultimo_reporte = None, 0.0
+    while True:
+        inicio = time.monotonic()
+        try:
+            status, comando = backend.comando_pendiente()
+            if status == 200 and comando:
+                tipo = comando.get("tipo_comando")
+                vigente = comando.get("ttl_ms", 0) > 0
+                direccion = (comando.get("parametros") or {}).get("direccion")
+                if vigente and tipo == "ver":
+                    transmision.ver()
+                elif tipo == "detener":
+                    transmision.detener()
+                elif vigente and tipo == "mover" and direccion in GIROS and dispositivo.get("onvif_ptz"):
+                    girar(dispositivo, direccion)
+                else:
+                    log(nombre, "orden rechazada o vencida", tipo)
+                backend.consumido(comando["id"])
+            estado = {"transmitiendo": transmision.activa()}
+            ahora = time.monotonic()
+            if estado != ultimo_estado or ahora - ultimo_reporte >= 60:
+                backend.reportar(estado)
+                ultimo_estado, ultimo_reporte = estado, ahora
+        except Exception as error:  # noqa: BLE001 - el hilo nunca debe morir
+            log(nombre, "error:", error)
+            time.sleep(5)
+        # En reposo cada 2 s alcanza ("ver" tarda a lo sumo eso en arrancar);
+        # mirando, cada 0,5 s para que las flechas de giro respondan enseguida.
+        intervalo = 0.5 if transmision.activa() else 2.0
+        time.sleep(max(0.0, intervalo - (time.monotonic() - inicio)))
 
 
 def leer_estado(ha, dispositivo):
@@ -215,6 +362,10 @@ def main():
         ha = HomeAssistant(config.get("ha_url", "http://localhost:8123"), f.read().strip())
 
     for dispositivo in config["devices"]:
+        if dispositivo["kind"] == "camara":
+            threading.Thread(target=atender_camara, args=(dispositivo, config["url"]), daemon=True).start()
+            log("atendiendo", dispositivo["nombre"], "camara")
+            continue
         if dispositivo["kind"] not in SERVICIOS:
             sys.exit(f"tipo no soportado: {dispositivo['kind']}")
         threading.Thread(target=atender, args=(dispositivo, ha, config["url"]), daemon=True).start()
@@ -239,6 +390,11 @@ if __name__ == "__main__":
                      {"color": "#zzzzzz"}, {"color": "red"}, {"color": "#fff", "brillo": 3},
                      {"temperatura_k": 3000, "color": "#ffffff"}, {"efecto": 1}):
             assert ajuste_a_ha(malo) is None, malo
+        a, b = b"\xff\xd8AAA\xff\x00\xff\xd9", b"\xff\xd8BB\xff\xd9"
+        assert extraer_jpegs(b"basura" + a + b + b"\xff\xd8CC") == ([a, b], b"\xff\xd8CC")
+        assert extraer_jpegs(b"\xff\xd8sin fin") == ([], b"\xff\xd8sin fin")
+        assert extraer_jpegs(b"sin inicio") == ([], b"")
+        assert set(GIROS) == {"arriba", "abajo", "izquierda", "derecha"}  # igual a DIRECCIONES del backend
         print("selftest OK")
     else:
         main()

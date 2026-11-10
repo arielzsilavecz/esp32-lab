@@ -255,9 +255,10 @@ button:disabled {
 }
 
 .dispositivo[data-tipo="porton"] { order: 1; }
-.dispositivo[data-tipo="luz"] { order: 2; }
-.dispositivo[data-tipo="alarma"] { order: 3; }
-.dispositivo[data-tipo="disyuntor"] { order: 4; }
+.dispositivo[data-tipo="camara"] { order: 2; }
+.dispositivo[data-tipo="luz"] { order: 3; }
+.dispositivo[data-tipo="alarma"] { order: 4; }
+.dispositivo[data-tipo="disyuntor"] { order: 5; }
 
 /* Desktop: la alarma con su plano a la izquierda; acciones y datos a la derecha. */
 @media (min-width: 960px) {
@@ -1851,6 +1852,132 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* ---------- Camaras: una linea en reposo, recuadro desplegable al ver ---------- */
+
+.camara-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.camara-panel[hidden],
+.camara-marco img[hidden],
+.camara-conectando[hidden],
+.fila-compacta button[hidden],
+.dispositivo .historial[hidden] {
+  display: none;
+}
+
+.camara-marco {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #0f0f0e;
+  border-radius: var(--radio-chico);
+}
+
+.camara-marco img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.camara-conectando {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.camara-estado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Punto rojo = transmitiendo (con texto al lado: no es el unico canal). */
+.punto-vivo,
+.punto-conectando {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.punto-vivo { background: var(--critical); }
+.punto-conectando { background: var(--ink-muted); }
+
+.camara-controles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Pad de giro en cruz: arriba / izquierda-derecha / abajo. */
+.camara-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  grid-template-rows: repeat(3, 44px);
+  gap: 2px;
+}
+
+.camara-pad .flecha {
+  width: 44px;
+  min-height: 44px;
+  margin: 0;
+  opacity: 1;
+  color: var(--ink);
+  background: var(--panel-2);
+  border-radius: 10px;
+}
+
+.camara-pad .flecha svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.2;
+}
+
+.flecha-arriba { grid-area: 1 / 2; }
+.flecha-izquierda { grid-area: 2 / 1; }
+.flecha-derecha { grid-area: 2 / 3; }
+.flecha-abajo { grid-area: 3 / 2; }
+
+@media (hover: hover) {
+  .camara-pad .flecha:not(:disabled):hover {
+    background: #33332f;
+  }
+}
+
+.camara-pad .flecha:disabled {
+  opacity: 0.45;
+}
+
+.camara-acciones {
+  display: flex;
+  gap: 8px;
+}
+
+.camara-acciones button {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--border-fuerte);
+  font-size: 14px;
+}
+
+@media (hover: hover) {
+  .camara-acciones button:not(:disabled):hover {
+    background: var(--panel-2);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

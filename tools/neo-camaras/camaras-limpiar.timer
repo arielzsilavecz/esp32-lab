@@ -1,0 +1,9 @@
+[Unit]
+Description=NEO: limpieza de grabaciones cada 10 min
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

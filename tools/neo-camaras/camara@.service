@@ -1,0 +1,34 @@
+# Grabacion continua de una camara IP en el HDD de NEO (una instancia por camara):
+#   systemctl enable --now camara@camara1
+# Config en /etc/neo-camaras/<nombre>.env (CAM_URL, CAM_LIMITE_GB). Ver ADR-0012.
+#
+# -c copy: guarda el video tal cual sale de la camara (H.265), sin recodificar:
+# el CPU casi no trabaja. Segmentos de 10 min en Matroska: si se corta la luz
+# solo se pierde el ultimo tramo, y admite el audio G.711 de estas camaras.
+[Unit]
+Description=NEO: grabacion continua de la camara %i
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/backups
+
+[Service]
+User=camaras
+Group=camaras
+EnvironmentFile=/etc/neo-camaras/%i.env
+# -timeout (microsegundos): si la camara deja de mandar video (Wi-Fi, reinicio),
+# ffmpeg termina y systemd lo vuelve a lanzar.
+# Probado (2026-11-10): -use_wallclock_as_timestamps empeora estas camaras
+# (EYEPLUS/YCC365): 211 marcas de tiempo desordenadas contra 12 sin el, en 30 s.
+# Las marcas de la camara alcanzan: los segmentos cerrados duran lo correcto. Un
+# segmento todavia abierto no tiene duracion final (no medirla ahi).
+ExecStart=/usr/bin/ffmpeg -nostdin -hide_banner -loglevel warning \
+  -rtsp_transport tcp -timeout 15000000 -i ${CAM_URL} \
+  -map 0 -c copy -f segment -segment_time 600 -segment_format matroska \
+  -reset_timestamps 1 -strftime 1 /mnt/backups/camaras/%i/%%Y-%%m-%%d_%%H-%%M-%%S.mkv
+Restart=always
+RestartSec=10
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

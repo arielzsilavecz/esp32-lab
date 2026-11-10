@@ -1,0 +1,7 @@
+[Unit]
+Description=NEO: recortar grabaciones de camaras a su limite de espacio
+RequiresMountsFor=/mnt/backups
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/camaras-limpiar.sh

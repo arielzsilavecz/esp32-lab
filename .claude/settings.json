@@ -86,7 +86,19 @@
       "Bash(rm -rf .playwright-mcp)",
       "Bash(sh \"C:/Users/ariel/.claude/skills/impeccable/scripts/impeccable\" detect --json backend/public/style.css backend/public/app.js)",
       "Bash(grep -n \"historial\\\\$/\" dev/preview.js)",
-      "Bash(PORT=4670 node dev/preview.js)"
+      "Bash(PORT=4670 node dev/preview.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'for i in $\\(seq 1 254\\); do ip=192.168.100.$i; for p in 554 8899 34567 37777 8000 6668 80; do \\( timeout 0.5 bash -c \"echo > /dev/tcp/$ip/$p\" 2>/dev/null && echo \"$ip $p\" \\) & done; done 2>/dev/null; wait')",
+      "Bash(sort -t. -k4 -n)",
+      "Bash(awk '{a[$1]=a[$1]\" \"$2} END {for \\(k in a\\) print k\":\"a[k]}')",
+      "Bash(PORT=4680 node dev/preview.js)",
+      "Bash(PORT=4690 node dev/preview.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'timeout 40 python3 /tmp/onvif_ptz.py 192.168.100.122 --mover 2>&1 | tail -2')",
+      "Bash(scp -q -o BatchMode=yes ariel@192.168.100.135:/tmp/antes.jpg ariel@192.168.100.135:/tmp/despues.jpg \"C:/Users/ariel/AppData/Local/Temp/claude/f075be83d637ed5b/188147d5-d51f-430a-a84c-84b026d3f70a/scratchpad/\")",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/bridge-test.py')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'python3 -m py_compile /tmp/bridge-test.py && python3 /tmp/bridge-test.py --selftest; rm -f /tmp/bridge-test.py')",
+      "Bash(PORT=4700 node dev/preview.js)",
+      "Bash(curl -s -o /dev/null http://localhost:4700/)"
     ]
   }
 }
