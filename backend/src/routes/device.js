@@ -4,7 +4,8 @@ import { esJpeg, guardarCuadro } from '../camaraCuadros.js';
 import { requireDeviceToken } from '../deviceAuth.js';
 import { hayPaginasAbiertas, publishDeviceState } from '../stateEvents.js';
 import { esperarAviso } from '../esperaComandos.js';
-import { notifyZoneChanges } from '../pushNotifications.js';
+import { notifyCameraAlert, notifyZoneChanges } from '../pushNotifications.js';
+import { guardarCaptura, tomarReforzar, vigilanciaActiva } from '../vigilancia.js';
 import { claimCommandSql } from '../commandPolicy.js';
 import { alertarTemperatura } from '../serverAlerts.js';
 import { debePersistir } from '../historyPolicy.js';
@@ -38,6 +39,33 @@ deviceRouter.post('/imagen', express.raw({ type: 'image/jpeg', limit: '400kb' })
   res.status(204).end();
 });
 
+// Captura de vigilancia (ADR-0015). X-Motivo: "zona" (pedida al activarse
+// Z1/Z2: la usa el aviso de zona) o "deteccion" (NEO vio una persona o un
+// vehiculo; X-Descripcion, codificada como URI, es el texto del aviso).
+deviceRouter.post('/captura', express.raw({ type: 'image/jpeg', limit: '400kb' }), async (req, res) => {
+  if (req.dispositivo.tipo !== 'camara') {
+    return res.status(403).json({ error: 'Solo las cámaras suben capturas' });
+  }
+  if (!esJpeg(req.body)) {
+    return res.status(400).json({ error: 'Se esperaba un JPEG' });
+  }
+  const motivo = req.get('X-Motivo');
+  if (motivo !== 'zona' && motivo !== 'deteccion') {
+    return res.status(400).json({ error: 'X-Motivo debe ser zona o deteccion' });
+  }
+  let descripcion = 'Movimiento detectado';
+  try {
+    descripcion = decodeURIComponent(req.get('X-Descripcion') || '').slice(0, 200) || descripcion;
+  } catch { /* texto mal codificado: queda el generico */ }
+
+  const id = guardarCaptura(req.body, motivo);
+  res.status(204).end();
+  if (motivo === 'deteccion') {
+    void notifyCameraAlert(req.dispositivo, descripcion, id)
+      .catch((error) => console.error('Fallo el aviso de la camara:', error.message));
+  }
+});
+
 // La ESP32 llama esto cada ~1s (ver ADR-0006 por que 1s no cambia el costo).
 // ?espera=N (hasta 25 s): espera larga. Si no hay orden, la consulta queda
 // abierta hasta que llega una o vence (ADR-0013). Sin el parametro responde al
@@ -59,6 +87,11 @@ deviceRouter.get('/comando-pendiente', async (req, res) => {
   }
 
   res.set('X-Pagina-Abierta', hayPaginasAbiertas() ? '1' : '0');
+  // Camaras: si vigilar (alguien en "Estoy afuera") y si se activo Z1/Z2 (ADR-0015).
+  if (req.dispositivo.tipo === 'camara') {
+    res.set('X-Vigilancia', (await vigilanciaActiva()) ? '1' : '0');
+    if (tomarReforzar(req.dispositivo.id)) res.set('X-Reforzar', '1');
+  }
   if (result.rowCount === 0) {
     return res.status(204).end();
   }

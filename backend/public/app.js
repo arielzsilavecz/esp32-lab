@@ -242,6 +242,21 @@ function mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estad
   const zonas = estado?.zonas;
 
   zonasEl.innerHTML = '';
+
+  // Titular: el estado se lee sin recorrer las 6 cajas del plano. Si alguna
+  // zona todavia no reporto, no se afirma "todo en reposo".
+  const conocidas = Array.isArray(zonas) ? zonas.slice(0, zoneLayout.length) : [];
+  const activas = conocidas.flatMap((activa, i) => (activa === true ? [i + 1] : []));
+  if (activas.length > 0 || (conocidas.length > 0 && conocidas.every((z) => z === false))) {
+    const titular = document.createElement('p');
+    titular.className = 'alarma-estado';
+    titular.dataset.estado = activas.length > 0 ? 'activa' : 'reposo';
+    titular.textContent = activas.length === 0 ? 'Todo en reposo'
+      : activas.length === 1 ? `Zona ${activas[0]} activada`
+      : `Zonas ${new Intl.ListFormat('es').format(activas.map(String))} activadas`;
+    zonasEl.appendChild(titular);
+  }
+
   zonasEl.appendChild(crearPlanoZonas(zonas));
 
   actualizadoEl.textContent = estadoActualizadoAt
@@ -254,7 +269,7 @@ function mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estad
   // reporto (p. ej. antes del primer heartbeat tras el arranque).
   temperaturaEl.hidden = estado?.temperaturaC === undefined;
   if (!temperaturaEl.hidden) {
-    temperaturaEl.textContent = `Temp. interna ESP32: ${estado.temperaturaC.toFixed(1)}°C`;
+    temperaturaEl.textContent = `${estado.temperaturaC.toFixed(1).replace('.', ',')} °C`;
   }
 }
 
@@ -574,7 +589,7 @@ function crearTarjetaLuz(dispositivo, grupo, nombre) {
     if (estado?.encendido && estado.modo === 'blanco' && typeof estado.temperatura_k === 'number') detalle.push(`blanco ${estado.temperatura_k} K`);
     if (estado?.encendido && estado.modo === 'color') detalle.push('color');
     estadoEl.textContent = estado
-      ? [estado.encendido ? 'Encendida' : 'Apagada', ...detalle, horaExactaAR(at)].join(' · ')
+      ? [estado.encendido ? 'Encendida' : 'Apagada', ...detalle, horaExactaAR(at).slice(0, 5)].join(' · ')
       : 'Sin datos de NEO todavía';
   };
   liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
@@ -602,7 +617,10 @@ function dibujarPotencia(contenedor, filas, fecha) {
     contenedor.textContent = 'Sin registros de potencia ese día.';
     return;
   }
-  const maximo = Math.max(1, ...puntos.map((p) => p[1]));
+  const pico = Math.max(1, ...puntos.map((p) => p[1]));
+  // Tope del eje en un valor redondo (2039 W -> 2500 W) para que las guias se lean.
+  const magnitud = 10 ** Math.floor(Math.log10(pico));
+  const maximo = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * magnitud).find((tope) => tope >= pico);
   const x = (minuto) => (minuto / 1440) * ancho;
   const y = (w) => alto - (w / maximo) * (alto - 12);
   const linea = puntos.map(([m, w]) => `${x(m).toFixed(1)},${y(w).toFixed(1)}`).join(' ');
@@ -611,7 +629,7 @@ function dibujarPotencia(contenedor, filas, fecha) {
   // Solo numeros calculados aca: innerHTML no recibe texto del usuario.
   const primero = x(puntos[0][0]).toFixed(1);
   const ultimo = x(puntos.at(-1)[0]).toFixed(1);
-  contenedor.innerHTML = `<svg viewBox="0 0 ${ancho} ${alto + 16}" role="img" aria-label="Potencia del día, máximo ${Math.round(maximo)} W">
+  contenedor.innerHTML = `<svg viewBox="0 0 ${ancho} ${alto + 16}" role="img" aria-label="Potencia del día, máximo ${Math.round(pico)} W">
     <line x1="0" y1="${y(maximo)}" x2="${ancho}" y2="${y(maximo)}" class="guia"/>
     <line x1="0" y1="${y(maximo / 2)}" x2="${ancho}" y2="${y(maximo / 2)}" class="guia"/>
     <line x1="0" y1="${alto}" x2="${ancho}" y2="${alto}" class="eje"/>
@@ -701,7 +719,7 @@ function crearTarjetaDisyuntor(dispositivo, card, nombre) {
       valores.get(clave).textContent = typeof v === 'number' ? `${numeroEs(v, decimales)} ${unidad}` : '–';
     }
     estadoEl.textContent = estado
-      ? `${estado.encendido ? 'Conectado' : 'Cortado'} · ${horaExactaAR(at)}`
+      ? `${estado.encendido ? 'Conectado' : 'Cortado'} · ${horaExactaAR(at).slice(0, 5)}`
       : 'Sin datos de NEO todavía';
   };
   liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
@@ -1060,7 +1078,11 @@ function mostrarLogZonas(logEl, snapshots) {
 
     const encabezado = document.createElement('summary');
     encabezado.className = 'log-hora';
-    encabezado.textContent = etiqueta;
+    // La fecha ya esta elegida arriba: la fila muestra solo la hora y cuanto paso.
+    const cuenta = document.createElement('span');
+    cuenta.className = 'log-cuenta';
+    cuenta.textContent = eventosHora.length === 1 ? '1 cambio' : `${eventosHora.length} cambios`;
+    encabezado.append(etiqueta.split(' · ')[1], cuenta);
 
     const lineas = document.createElement('div');
 
@@ -1326,7 +1348,7 @@ async function init() {
       const fechaEl = crearSelectorFecha((fecha) => cargarLogZonas(dispositivo.id, logEl, fecha));
 
       const notificationControl = crearControlNotificaciones();
-      card.append(nombre, notificationControl, zonasEl, actualizadoEl, fechaEl, logEl);
+      card.append(nombre, zonasEl, actualizadoEl, notificationControl, fechaEl, logEl);
       listEl.appendChild(card);
 
       zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl, fechaEl });
@@ -1358,10 +1380,11 @@ async function init() {
 
     // Servidor (NEO): solo lectura, sin boton. Sin esta rama caia en la de
     // accion y se dibujaba como un porton con "Activar" que no hace nada.
-    // NEO va arriba de todo y a lo ancho: fuera de las dos columnas (ver servidor.js).
+    // NEO va al final y a lo ancho: fuera de las dos columnas (ver servidor.js).
+    // Es diagnostico, no control: no le saca el primer lugar a porton y alarma.
     if (dispositivo.tipo === 'servidor') {
       crearSeccionServidor(dispositivo, card, nombre);
-      columnaPrincipal.parentElement.prepend(card);
+      columnaPrincipal.parentElement.append(card);
       continue;
     }
 
@@ -1371,6 +1394,7 @@ async function init() {
     card.classList.add('compacto');
 
     const boton = document.createElement('button');
+    boton.className = 'boton-principal';
     boton.textContent = 'Activar';
     boton.disabled = true;
     portonId = String(dispositivo.id);

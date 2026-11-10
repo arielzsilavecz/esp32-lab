@@ -16,7 +16,11 @@
   --critical: #e04848;
   --luz: #f0b94a;
   --radio: 14px;
-  --radio-chico: 9px;
+  /* Dos radios: tarjetas (--radio) y todo lo que vive adentro (--radio-chico). */
+  --radio-chico: 10px;
+  /* Boton por defecto: tonal. El relleno de acento queda para .boton-principal. */
+  --tonal: #33332f;
+  --tonal-hover: #3d3d39;
   --toque: 44px;
 }
 
@@ -41,6 +45,8 @@ body {
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.4;
+  /* Casi todo numero de esta pantalla se actualiza en vivo: que no baile. */
+  font-variant-numeric: tabular-nums;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -74,6 +80,13 @@ h1 {
   max-width: 340px;
 }
 
+.login-icono {
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 16px;
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -84,14 +97,14 @@ label {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink-muted);
 }
 
 input {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
   padding: 12px;
   color: var(--ink);
   font: inherit;
@@ -107,20 +120,31 @@ input:focus-visible {
 
 button {
   min-height: var(--toque);
-  background: var(--accent-fill);
-  color: white;
+  background: var(--tonal);
+  color: var(--ink);
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radio-chico);
   padding: 0 18px;
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease;
 }
 
+/* Una sola accion rellena por pantalla: el porton en el tablero, "Entrar" en el login. */
+.boton-principal {
+  background: var(--accent-fill);
+  color: white;
+  border-color: transparent;
+}
+
 @media (hover: hover) {
   button:not(:disabled):hover {
+    background: var(--tonal-hover);
+  }
+
+  .boton-principal:not(:disabled):hover {
     background: var(--accent-fill-hover);
   }
 }
@@ -143,7 +167,7 @@ button:disabled {
 
 .error {
   color: var(--critical);
-  font-size: 13px;
+  font-size: 14px;
   margin: 0;
 }
 
@@ -210,7 +234,6 @@ button:disabled {
 .conexion-badge.offline { color: var(--critical); border-color: rgba(224, 72, 72, 0.45); }
 
 .topbar .temperatura-interna {
-  margin-top: 4px;
   color: var(--ink-muted);
   font-size: 12px;
 }
@@ -221,7 +244,7 @@ button:disabled {
   color: var(--ink-2);
   border: 1px solid var(--border);
   padding: 0 14px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
 }
 
@@ -336,7 +359,7 @@ button:disabled {
   padding: 0;
   background: transparent;
   color: var(--ink-muted);
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
 }
 
 .boton-icono svg {
@@ -390,8 +413,8 @@ button:disabled {
   flex: 0 0 auto;
 }
 
-/* Botones de encendido: apagado ofrece "Encender" (relleno, accion principal);
-   encendido ofrece "Apagar" (contorno, accion secundaria). */
+/* Botones de encendido: apagado ofrece "Encender" (tonal);
+   encendido ofrece "Apagar" (contorno). */
 .boton-estado {
   flex: 0 0 auto;
   min-width: 104px;
@@ -471,9 +494,9 @@ button:disabled {
   padding: 0 4px;
   margin-left: 18px;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
   user-select: none;
 }
 
@@ -527,7 +550,7 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .control-rango output {
@@ -675,9 +698,8 @@ button:disabled {
   gap: 16px;
   min-height: 56px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
   border-radius: var(--radio-chico);
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--panel-2);
 }
 
 .modo-afuera-titulo {
@@ -748,9 +770,29 @@ button:disabled {
 }
 
 .programacion {
-  border: 1px solid var(--border);
   border-radius: var(--radio-chico);
-  background: rgba(255, 255, 255, 0.018);
+  background: var(--panel-2);
+}
+
+/* Mismo chevron que "Ajustar brillo y color": todo lo que se despliega se ve igual. */
+.programacion > summary::after,
+.tabla-datos > summary::after,
+.log-hora::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 3px auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.programacion[open] > summary::after,
+.tabla-datos[open] > summary::after,
+.log-grupo-hora[open] > .log-hora::after {
+  margin-bottom: -3px;
+  transform: rotate(-135deg);
 }
 
 .programacion summary {
@@ -759,7 +801,7 @@ button:disabled {
   align-items: center;
   padding: 0 12px;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
@@ -867,22 +909,55 @@ button:disabled {
   align-self: flex-start;
   min-height: 36px;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink-2);
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
   padding: 4px 10px;
   color-scheme: dark;
 }
 
+.log-zonas,
+.tabla-scroll {
+  scrollbar-width: thin;
+}
+
 .log-hora {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
   padding: 8px 2px;
   font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--ink-2);
   border-bottom: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.log-hora::-webkit-details-marker {
+  display: none;
+}
+
+.log-cuenta {
+  color: var(--ink-muted);
+}
+
+/* Titular de la alarma: el estado se lee antes que el plano. */
+.alarma-estado {
+  /* Aire abajo: la etiqueta "Z1" del laser sobresale 24px por encima del plano. */
+  margin: 0 0 22px;
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.alarma-estado[data-estado="activa"] {
+  color: var(--critical);
 }
 
 .log-grupo-hora + .log-grupo-hora {
@@ -1118,7 +1193,7 @@ button:disabled {
 
 .grafico {
   color: var(--ink-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .grafico svg {
@@ -1156,10 +1231,10 @@ button:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- NEO: arriba de todo, a lo ancho en desktop ---------- */
+/* ---------- NEO: al final (es diagnostico, no control), a lo ancho en desktop ---------- */
 
 .dispositivo[data-tipo="servidor"] {
-  order: 0;
+  order: 9;
   container-type: inline-size;
   gap: 16px;
 }
@@ -1181,7 +1256,7 @@ button:disabled {
   min-height: var(--toque);
   margin: -6px -8px;
   padding: 6px 8px;
-  border-radius: 10px;
+  border-radius: var(--radio-chico);
   cursor: pointer;
   user-select: none;
 }
@@ -1209,7 +1284,7 @@ button:disabled {
 
 .neo-resumen {
   color: var(--ink-muted);
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1257,7 +1332,7 @@ button:disabled {
   padding: 3px;
   background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radio-chico);
 }
 
 .segmentado button {
@@ -1265,12 +1340,12 @@ button:disabled {
   padding: 0 14px;
   background: transparent;
   color: var(--ink-muted);
-  font-size: 13px;
+  font-size: 14px;
   border-radius: 7px;
 }
 
 .segmentado button[aria-pressed="true"] {
-  background: #33332f;
+  background: var(--tonal);
   color: var(--ink);
 }
 
@@ -1350,7 +1425,7 @@ button:disabled {
 
 .carga-mhz {
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1439,7 +1514,7 @@ button:disabled {
   gap: 4px 12px;
   margin-bottom: 6px;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -1466,7 +1541,7 @@ button:disabled {
 
 .grafico-marco {
   position: relative;
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
   touch-action: pan-y;
 }
 
@@ -1538,7 +1613,7 @@ button:disabled {
   padding: 6px 10px;
   background: #262624;
   border: 1px solid var(--border-fuerte);
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   color: var(--ink-2);
   font-size: 12px;
@@ -1625,10 +1700,10 @@ button:disabled {
   display: flex;
   align-items: center;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
 }
 
 .tabla-datos summary:focus-visible {
@@ -1640,7 +1715,7 @@ button:disabled {
   max-height: 300px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radio-chico);
 }
 
 .tabla-scroll table {
@@ -1707,12 +1782,12 @@ button:disabled {
 
 .mes-titulo strong {
   color: var(--ink);
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .mes-titulo span {
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1890,7 +1965,7 @@ button:disabled {
 
 .camara-conectando {
   color: var(--ink-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .asistente {
@@ -1914,7 +1989,7 @@ button:disabled {
 
 .asistente-respuesta {
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .asistente-respuesta[hidden] {
@@ -1927,7 +2002,7 @@ button:disabled {
   gap: 8px;
   min-height: 20px;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 

@@ -1,10 +1,11 @@
 [Unit]
-Description=NEO: puente Home Assistant <-> backend (luces y disyuntor)
-After=network-online.target docker.service
+Description=NEO: puente Home Assistant <-> backend (luces, disyuntor, camaras, asistente)
+After=network-online.target docker.service neo-llm.service
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/python3 /usr/local/bin/neo-bridge.py
+# bridge.py y vigilancia.py juntos en /opt/neo-bridge (bridge importa vigilancia).
+ExecStart=/usr/bin/python3 /opt/neo-bridge/bridge.py
 Restart=always
 RestartSec=10
 

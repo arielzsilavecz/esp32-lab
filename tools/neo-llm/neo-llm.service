@@ -10,9 +10,10 @@ Description=NEO: modelo de lenguaje local (llama.cpp, solo 127.0.0.1)
 After=network.target
 
 [Service]
-# Cargado siempre (~2,6 GB): dormirlo pierde el prompt ya procesado y la primera
-# orden tardaria ~30 s mas. -np 1: un pedido a la vez.
-ExecStart=/opt/llm/bin/llama-server -m /opt/llm/modelos/Qwen3.5-2B-Q4_K_M.gguf -t 2 -c 4096 -np 1 --host 127.0.0.1 --port 8090 --reasoning off --no-webui
+# Cargado siempre (~3,3 GB con vision): dormirlo pierde el prompt ya procesado y
+# la primera orden tardaria ~30 s mas. -np 1: un pedido a la vez. --mmproj: la
+# parte de vision, para la vigilancia de camaras (ADR-0015).
+ExecStart=/opt/llm/bin/llama-server -m /opt/llm/modelos/Qwen3.5-2B-Q4_K_M.gguf --mmproj /opt/llm/modelos/mmproj-2B-F16.gguf -t 2 -c 4096 -np 1 --host 127.0.0.1 --port 8090 --reasoning off --no-webui
 DynamicUser=yes
 Nice=15
 CPUWeight=20

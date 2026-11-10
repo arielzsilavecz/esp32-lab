@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { pool } from '../db.js';
 import { getVapidPublicKey } from '../pushNotifications.js';
+import { despertarTodos } from '../esperaComandos.js';
 
 export const notificationsRouter = Router();
 
@@ -63,6 +64,7 @@ notificationsRouter.put('/suscripcion', async (req, res) => {
     [subscription.endpoint, req.session.userId, subscription, enabled]
   );
 
+  despertarTodos(); // NEO relee "Estoy afuera" ya, no a los 25 s (ADR-0015)
   res.json({ enabled });
 });
 
@@ -102,6 +104,7 @@ notificationsRouter.put('/programacion', async (req, res) => {
       normalizedDays, start, end]
   );
 
+  despertarTodos();
   res.json({ enabled, days: normalizedDays, start, end });
 });
 

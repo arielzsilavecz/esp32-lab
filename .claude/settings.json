@@ -125,7 +125,10 @@
       "PowerShell(Remove-Item -Recurse -Force 'c:\\\\Users\\\\ariel\\\\OneDrive\\\\Escritorio\\\\esp32-lab\\\\.playwright-mcp' -Confirm:$false)",
       "Bash(ssh ariel@192.168.100.135 'cat > /tmp/neo-llm.service; sudo mkdir -p /opt/llm/modelos && sudo cp -r ~/llm/llama-b12255 /opt/llm/bin && sudo mv ~/llm/modelos/Qwen3.5-2B-Q4_K_M.gguf ~/llm/modelos/mmproj-2B-F16.gguf /opt/llm/modelos/ && sudo chown -R root:root /opt/llm && rm -rf ~/llm && sudo cp /tmp/neo-llm.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now neo-llm; for i in $\\(seq 60\\); do curl -sf 127.0.0.1:8090/health >/dev/null && break; sleep 1; done; systemctl is-active neo-llm; curl -s 127.0.0.1:8090/health; ls -la /opt/llm/modelos; free -m | head -2')",
       "Bash(ssh ariel@192.168.100.135 *)",
-      "Bash(node --test src/)"
+      "Bash(node --test src/)",
+      "ClaudeInChromeDomain(casa-piotti.up.railway.app)",
+      "PowerShell(& \"C:\\\\Users\\\\ariel\\\\.claude\\\\skills\\\\impeccable\\\\scripts\\\\impeccable.cmd\" detect --json backend/public/index.html backend/public/login.html backend/public/app.js backend/public/servidor.js backend/public/consumo.js backend/public/camaras.js backend/public/asistente.js)",
+      "ClaudeInChromeDomain(localhost:4600)"
     ]
   }
 }

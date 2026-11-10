@@ -10,6 +10,7 @@ import { deviceRouter } from './routes/device.js';
 import { notificationsRouter } from './routes/notifications.js';
 import { webauthnRouter } from './routes/webauthn.js';
 import { iniciarRetencion } from './retencion.js';
+import { leerCaptura } from './vigilancia.js';
 import { iniciarVigilanteServidor } from './serverAlerts.js';
 
 dotenv.config();
@@ -30,6 +31,15 @@ app.use('/api/dispositivos', dispositivosRouter);
 app.use('/api/device', deviceRouter);
 app.use('/api/notificaciones', notificationsRouter);
 app.use('/api/webauthn', webauthnRouter);
+
+// Fotos de los avisos de vigilancia, sin sesion: el telefono las baja para
+// mostrarlas en la notificacion. El id es aleatorio (128 bits) y vence a las 6 h
+// (ADR-0015).
+app.get('/capturas/:id.jpg', (req, res) => {
+  const captura = /^[0-9a-f]{32}$/.test(req.params.id) ? leerCaptura(req.params.id) : null;
+  if (!captura) return res.status(404).end();
+  res.set('Cache-Control', 'private, max-age=21600').type('image/jpeg').send(captura.imagen);
+});
 
 // Un solo proceso sirve API + frontend estatico -- ver ADR-0006 por que no
 // hay un Vercel aparte.

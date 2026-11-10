@@ -8,7 +8,8 @@ Por cada dispositivo configurado (luz o disyuntor), un hilo:
 
 Las camaras (kind "camara", ADR-0012) no pasan por Home Assistant: con la orden
 "ver" se lanza ffmpeg sobre su RTSP y se suben cuadros JPEG al backend durante
-2 min (o hasta "detener"). Sin pedido no hay ffmpeg ni trafico.
+2 min (o hasta "detener"). Sin pedido no hay ffmpeg ni trafico. Con alguien en
+"Estoy afuera" ademas vigila (vigilancia.py, ADR-0015).
 
 El asistente (kind "asistente", ADR-0014) recibe ordenes escritas, las resuelve
 con reglas o con el modelo local (neo-llm, 127.0.0.1:8090) y actua sobre las
@@ -27,6 +28,9 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
+
+import vigilancia
+from vigilancia import Vigilancia
 
 CONFIG_PATH = "/etc/neo-bridge.json"
 
@@ -135,11 +139,12 @@ class Backend:
         self.headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         self.timeout = timeout
         self.conn = None
+        self.cabeceras = {}  # de la ultima respuesta (X-Vigilancia, X-Reforzar)
 
-    def _pedir(self, metodo, ruta, cuerpo=None, tipo=None):
+    def _pedir(self, metodo, ruta, cuerpo=None, tipo=None, extra=None):
         # bytes (un JPEG) van crudos con su tipo; el resto como JSON.
         datos = cuerpo if isinstance(cuerpo, bytes) else (json.dumps(cuerpo) if cuerpo is not None else None)
-        headers = {**self.headers, "Content-Type": tipo} if tipo else self.headers
+        headers = {**self.headers, **({"Content-Type": tipo} if tipo else {}), **(extra or {})}
         for intento in (1, 2):
             try:
                 if self.conn is None:
@@ -147,6 +152,7 @@ class Backend:
                 self.conn.request(metodo, ruta, body=datos, headers=headers)
                 resp = self.conn.getresponse()
                 texto = resp.read()
+                self.cabeceras = {k.lower(): v for k, v in resp.getheaders()}
                 pagina = resp.getheader("X-Pagina-Abierta")
                 if pagina is not None:
                     PAGINA["abierta"] = pagina == "1"
@@ -168,6 +174,12 @@ class Backend:
 
     def subir_imagen(self, jpeg):
         return self._pedir("POST", "/api/device/imagen", jpeg, tipo="image/jpeg")
+
+    def subir_captura(self, jpeg, motivo, descripcion=None):
+        extra = {"X-Motivo": motivo}
+        if descripcion:
+            extra["X-Descripcion"] = urllib.parse.quote(descripcion)
+        return self._pedir("POST", "/api/device/captura", jpeg, tipo="image/jpeg", extra=extra)
 
 
 def extraer_jpegs(buffer):
@@ -271,15 +283,18 @@ def girar(dispositivo, direccion):
                                             '<tptz:PanTilt>true</tptz:PanTilt><tptz:Zoom>true</tptz:Zoom></tptz:Stop>')
 
 
-def escuchar_ordenes(dispositivo, url, ejecutar):
+def escuchar_ordenes(dispositivo, url, ejecutar, al_responder=None):
     """Hilo de ordenes: espera larga contra el backend y ejecuta lo que llegue.
-    Una consulta cada ~25 s si no pasa nada; la orden llega al instante."""
+    Una consulta cada ~25 s si no pasa nada; la orden llega al instante.
+    al_responder(cabeceras): para lo que el backend informa en cada respuesta."""
     nombre = dispositivo["nombre"]
     backend = Backend(url, dispositivo["token"], timeout=ESPERA_ORDENES_S + 15)
     while True:
         try:
             inicio = time.monotonic()
             status, comando = backend.comando_pendiente(ESPERA_ORDENES_S)
+            if al_responder:
+                al_responder(backend.cabeceras)
             if status == 200 and comando:
                 try:
                     ejecutar(comando)
@@ -320,10 +335,26 @@ def vigilar_estado(dispositivo, url, leer, cambio, intervalo, forzar):
         forzar.wait(1.0)
 
 
-def atender_camara(dispositivo, url):
+def atender_camara(dispositivo, url, url_llm):
     nombre = dispositivo["nombre"]
     transmision = Transmision(dispositivo, url)
     forzar = threading.Event()
+
+    # Capturas desde dos hilos (foto de zona y analisis): una conexion con candado.
+    capturas, candado = Backend(url, dispositivo["token"]), threading.Lock()
+
+    def subir(jpeg, motivo, descripcion=None):
+        try:
+            with candado:
+                capturas.subir_captura(jpeg, motivo, descripcion)
+        except Exception as error:  # noqa: BLE001
+            log(nombre, "no se pudo subir la captura:", error)
+
+    vigilancia = Vigilancia(dispositivo, url_llm, subir)
+
+    def al_responder(cabeceras):
+        if "x-vigilancia" in cabeceras:  # backend sin vigilancia: no se toca nada
+            vigilancia.actualizar(cabeceras["x-vigilancia"] == "1", cabeceras.get("x-reforzar") == "1")
 
     def ejecutar(comando):
         tipo = comando.get("tipo_comando")
@@ -343,7 +374,7 @@ def atender_camara(dispositivo, url):
     threading.Thread(target=vigilar_estado, daemon=True, args=(
         dispositivo, url, lambda: {"transmitiendo": transmision.activa()},
         lambda nuevo, viejo: nuevo != viejo, lambda: float("inf"), forzar)).start()
-    escuchar_ordenes(dispositivo, url, ejecutar)
+    escuchar_ordenes(dispositivo, url, ejecutar, al_responder)
 
 
 # --- Asistente (ADR-0014): orden escrita -> acciones sobre las luces --------
@@ -551,14 +582,15 @@ def main():
 
     # El asistente ubica cada foco por su id del backend (campo "id" en la config).
     luces = {d["id"]: d for d in config["devices"] if d["kind"] == "luz" and "id" in d}
+    url_llm = config.get("llm_url", "http://127.0.0.1:8090")
     for dispositivo in config["devices"]:
         if dispositivo["kind"] == "asistente":
             threading.Thread(target=atender_asistente, daemon=True, args=(
-                dispositivo, ha, luces, config["url"], config.get("llm_url", "http://127.0.0.1:8090"))).start()
+                dispositivo, ha, luces, config["url"], url_llm)).start()
             log("atendiendo", dispositivo["nombre"], "asistente con", len(luces), "luces")
             continue
         if dispositivo["kind"] == "camara":
-            threading.Thread(target=atender_camara, args=(dispositivo, config["url"]), daemon=True).start()
+            threading.Thread(target=atender_camara, args=(dispositivo, config["url"], url_llm), daemon=True).start()
             log("atendiendo", dispositivo["nombre"], "camara")
             continue
         if dispositivo["kind"] not in SERVICIOS:
@@ -613,6 +645,7 @@ if __name__ == "__main__":
         assert limpiar_accion({"luz": 6, "accion": "apagar"}, ids, "x") is None  # el disyuntor no es una luz
         assert limpiar_accion({"luz": 4, "accion": "activar"}, ids, "x") is None
         assert describir("Cocina", "ajustar", {"brillo": 30, "temperatura_k": 2700}) == "Cocina: 30 %, blanco 2700 K"
+        vigilancia.selftest()
         print("selftest OK")
     else:
         main()

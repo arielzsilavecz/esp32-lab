@@ -10,6 +10,9 @@ self.addEventListener('push', (event) => {
     body: data.body || 'Se modifico una zona',
     icon: '/icons/app-icon-notification-256.png',
     badge: '/icons/app-icon-notification-96.png',
+    // Foto de la camara (aviso de Z1/Z2 o deteccion). Android la muestra
+    // expandida; iOS no muestra imagenes en notificaciones web.
+    image: data.image,
     tag: data.tag || 'alarma-cambio-zona',
     renotify: true,
     data: { url: data.url || '/' },
