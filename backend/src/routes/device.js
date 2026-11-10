@@ -2,7 +2,8 @@ import express, { Router } from 'express';
 import { pool } from '../db.js';
 import { esJpeg, guardarCuadro } from '../camaraCuadros.js';
 import { requireDeviceToken } from '../deviceAuth.js';
-import { publishDeviceState } from '../stateEvents.js';
+import { hayPaginasAbiertas, publishDeviceState } from '../stateEvents.js';
+import { esperarAviso } from '../esperaComandos.js';
 import { notifyZoneChanges } from '../pushNotifications.js';
 import { claimCommandSql } from '../commandPolicy.js';
 import { alertarTemperatura } from '../serverAlerts.js';
@@ -38,12 +39,26 @@ deviceRouter.post('/imagen', express.raw({ type: 'image/jpeg', limit: '400kb' })
 });
 
 // La ESP32 llama esto cada ~1s (ver ADR-0006 por que 1s no cambia el costo).
-deviceRouter.get('/comando-pendiente', async (req, res) => {
-  const result = await pool.query(
-    claimCommandSql,
-    [req.dispositivo.id]
-  );
+// ?espera=N (hasta 25 s): espera larga. Si no hay orden, la consulta queda
+// abierta hasta que llega una o vence (ADR-0013). Sin el parametro responde al
+// instante, como siempre: el ESP32 del porton sigue funcionando igual.
+// Railway corta sockets ociosos a los 60 s (ADR-0009): 25 s queda lejos.
+const ESPERA_MAXIMA_MS = 25_000;
 
+deviceRouter.get('/comando-pendiente', async (req, res) => {
+  const reclamar = () => pool.query(claimCommandSql, [req.dispositivo.id]);
+  const espera = Math.min(ESPERA_MAXIMA_MS, Math.max(0, Number(req.query.espera) || 0) * 1000);
+
+  let result = await reclamar();
+  if (result.rowCount === 0 && espera > 0) {
+    const corte = new AbortController();
+    res.on('close', () => corte.abort());
+    const avisado = await esperarAviso(req.dispositivo.id, espera, corte.signal);
+    if (corte.signal.aborted) return;
+    if (avisado) result = await reclamar();
+  }
+
+  res.set('X-Pagina-Abierta', hayPaginasAbiertas() ? '1' : '0');
   if (result.rowCount === 0) {
     return res.status(204).end();
   }

@@ -3,9 +3,14 @@
 // relevante o pasado un intervalo. El disyuntor reporta cada 5 s para el
 // vivo: guardarlo todo serian ~17.000 filas/dia por dispositivo.
 // Tipos sin politica (alarma, servidor) guardan todo, como siempre.
+// cadaMs Infinity = solo cambios: la pagina no muestra historial de luces ni de
+// la camara, guardar latidos seria ocupar la base para nada (ADR-0013).
 const POLITICA = {
-  disyuntor: { cadaMs: 60_000, claves: ['encendido'] },
-  luz: { cadaMs: 10 * 60_000, claves: null }, // null: cualquier cambio
+  // 55 s y no 60: sin pagina abierta el puente reporta cada 60 s, y un reporte
+  // que llega unos ms antes no debe saltear un minuto del historial.
+  disyuntor: { cadaMs: 55_000, claves: ['encendido'] },
+  luz: { cadaMs: Infinity, claves: null }, // null: cualquier cambio
+  camara: { cadaMs: Infinity, claves: ['transmitiendo'] },
 };
 
 // En memoria: tras un redeploy el primer reporte siempre se guarda.

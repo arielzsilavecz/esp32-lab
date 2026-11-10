@@ -30,8 +30,6 @@ SERVICIOS = {
             "ajustar": "light/turn_on"},
     "disyuntor": {"encender": "switch/turn_on", "apagar": "switch/turn_off"},
 }
-# Cada cuanto reportar aunque nada cambie: el disyuntor alimenta las metricas en vivo.
-REPORTE_CADA_S = {"luz": 30, "disyuntor": 5}
 
 # Factores a la unidad que espera el backend (W, V, A, kWh).
 UNIDADES = {"W": 1, "kW": 1000, "V": 1, "mV": 0.001, "A": 1, "mA": 0.001, "kWh": 1, "Wh": 0.001}
@@ -112,13 +110,24 @@ class HomeAssistant:
         self._pedir("POST", f"/api/services/{servicio}", {"entity_id": entity_id, **(datos or {})})
 
 
+# Espera larga de ordenes (ADR-0013): el backend deja la consulta abierta hasta
+# 25 s y responde apenas hay una orden. Una consulta cada ~25 s por dispositivo
+# en vez de una por segundo, y la orden llega al instante.
+ESPERA_ORDENES_S = 25
+
+# Lo informa el backend en cada respuesta de ordenes (X-Pagina-Abierta): si
+# alguien tiene la pagina abierta. Arranca en True para no demorar el primer vivo.
+PAGINA = {"abierta": True}
+
+
 class Backend:
     """Conexion HTTPS persistente: rehacer TLS cada segundo es caro (ver ADR-0009)."""
 
-    def __init__(self, url, token):
+    def __init__(self, url, token, timeout=10):
         partes = urllib.parse.urlparse(url)
         self.host = partes.hostname
         self.headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        self.timeout = timeout
         self.conn = None
 
     def _pedir(self, metodo, ruta, cuerpo=None, tipo=None):
@@ -128,18 +137,22 @@ class Backend:
         for intento in (1, 2):
             try:
                 if self.conn is None:
-                    self.conn = http.client.HTTPSConnection(self.host, timeout=10)
+                    self.conn = http.client.HTTPSConnection(self.host, timeout=self.timeout)
                 self.conn.request(metodo, ruta, body=datos, headers=headers)
                 resp = self.conn.getresponse()
                 texto = resp.read()
+                pagina = resp.getheader("X-Pagina-Abierta")
+                if pagina is not None:
+                    PAGINA["abierta"] = pagina == "1"
                 return resp.status, (json.loads(texto) if texto and resp.status == 200 else None)
             except (OSError, http.client.HTTPException, json.JSONDecodeError):
                 self.conn = None  # socket cerrado por Railway: se reabre una vez
                 if intento == 2:
                     raise
 
-    def comando_pendiente(self):
-        return self._pedir("GET", "/api/device/comando-pendiente")
+    def comando_pendiente(self, espera=0):
+        ruta = "/api/device/comando-pendiente" + (f"?espera={espera}" if espera else "")
+        return self._pedir("GET", ruta)
 
     def consumido(self, comando_id):
         return self._pedir("POST", f"/api/device/comando/{comando_id}/consumido")
@@ -252,40 +265,79 @@ def girar(dispositivo, direccion):
                                             '<tptz:PanTilt>true</tptz:PanTilt><tptz:Zoom>true</tptz:Zoom></tptz:Stop>')
 
 
-def atender_camara(dispositivo, url):
+def escuchar_ordenes(dispositivo, url, ejecutar):
+    """Hilo de ordenes: espera larga contra el backend y ejecuta lo que llegue.
+    Una consulta cada ~25 s si no pasa nada; la orden llega al instante."""
+    nombre = dispositivo["nombre"]
+    backend = Backend(url, dispositivo["token"], timeout=ESPERA_ORDENES_S + 15)
+    while True:
+        try:
+            inicio = time.monotonic()
+            status, comando = backend.comando_pendiente(ESPERA_ORDENES_S)
+            if status == 200 and comando:
+                try:
+                    ejecutar(comando)
+                finally:
+                    backend.consumido(comando["id"])
+            elif status != 204:
+                log(nombre, "respuesta inesperada", status)
+                time.sleep(5)
+            else:
+                # Un backend sin espera larga responde al instante: sin esta pausa
+                # el bucle golpearia Railway sin freno. Con espera larga no actua.
+                time.sleep(max(0.0, 1.0 - (time.monotonic() - inicio)))
+        except Exception as error:  # noqa: BLE001 - el hilo nunca debe morir
+            log(nombre, "error en ordenes:", error)
+            time.sleep(5)
+
+
+def vigilar_estado(dispositivo, url, leer, cambio, intervalo, forzar):
+    """Hilo de estado: lee en local cada 1 s (Home Assistant o la propia
+    transmision, gratis) y reporta a Railway solo si cambio algo, si vencio el
+    intervalo o si una orden recien ejecutada pide reportar ya (forzar)."""
     nombre = dispositivo["nombre"]
     backend = Backend(url, dispositivo["token"])
-    transmision = Transmision(dispositivo, url)
-    ultimo_estado, ultimo_reporte = None, 0.0
+    ultimo, ultimo_reporte = None, 0.0
     while True:
-        inicio = time.monotonic()
+        forzado = forzar.is_set()
+        forzar.clear()
         try:
-            status, comando = backend.comando_pendiente()
-            if status == 200 and comando:
-                tipo = comando.get("tipo_comando")
-                vigente = comando.get("ttl_ms", 0) > 0
-                direccion = (comando.get("parametros") or {}).get("direccion")
-                if vigente and tipo == "ver":
-                    transmision.ver()
-                elif tipo == "detener":
-                    transmision.detener()
-                elif vigente and tipo == "mover" and direccion in GIROS and dispositivo.get("onvif_ptz"):
-                    girar(dispositivo, direccion)
-                else:
-                    log(nombre, "orden rechazada o vencida", tipo)
-                backend.consumido(comando["id"])
-            estado = {"transmitiendo": transmision.activa()}
+            estado = leer()
             ahora = time.monotonic()
-            if estado != ultimo_estado or ahora - ultimo_reporte >= 60:
+            if estado is not None and (ultimo is None or forzado or cambio(estado, ultimo)
+                                       or ahora - ultimo_reporte >= intervalo()):
                 backend.reportar(estado)
-                ultimo_estado, ultimo_reporte = estado, ahora
-        except Exception as error:  # noqa: BLE001 - el hilo nunca debe morir
-            log(nombre, "error:", error)
+                ultimo, ultimo_reporte = estado, ahora
+        except Exception as error:  # noqa: BLE001
+            log(nombre, "error en estado:", error)
             time.sleep(5)
-        # En reposo cada 2 s alcanza ("ver" tarda a lo sumo eso en arrancar);
-        # mirando, cada 0,5 s para que las flechas de giro respondan enseguida.
-        intervalo = 0.5 if transmision.activa() else 2.0
-        time.sleep(max(0.0, intervalo - (time.monotonic() - inicio)))
+        forzar.wait(1.0)
+
+
+def atender_camara(dispositivo, url):
+    nombre = dispositivo["nombre"]
+    transmision = Transmision(dispositivo, url)
+    forzar = threading.Event()
+
+    def ejecutar(comando):
+        tipo = comando.get("tipo_comando")
+        vigente = comando.get("ttl_ms", 0) > 0
+        direccion = (comando.get("parametros") or {}).get("direccion")
+        if vigente and tipo == "ver":
+            transmision.ver()
+        elif tipo == "detener":
+            transmision.detener()
+        elif vigente and tipo == "mover" and direccion in GIROS and dispositivo.get("onvif_ptz"):
+            girar(dispositivo, direccion)
+        else:
+            log(nombre, "orden rechazada o vencida", tipo)
+        forzar.set()
+
+    # Solo se reporta cuando empieza o termina una transmision: sin latidos.
+    threading.Thread(target=vigilar_estado, daemon=True, args=(
+        dispositivo, url, lambda: {"transmitiendo": transmision.activa()},
+        lambda nuevo, viejo: nuevo != viejo, lambda: float("inf"), forzar)).start()
+    escuchar_ordenes(dispositivo, url, ejecutar)
 
 
 def leer_estado(ha, dispositivo):
@@ -313,46 +365,45 @@ def leer_estado(ha, dispositivo):
     return estado
 
 
+def intervalo_reporte(kind):
+    """Cada cuanto reportar aunque nada cambie. Disyuntor: 5 s si alguien tiene
+    la pagina abierta (metricas en vivo), 60 s si no (alimenta el historial por
+    minuto). Luces: nunca, solo cambios (ADR-0013)."""
+    if kind == "disyuntor":
+        return 5 if PAGINA["abierta"] else 60
+    return float("inf")
+
+
+def cambio_relevante(kind, nuevo, viejo):
+    # En el disyuntor la potencia varia en cada lectura: solo encender/apagar
+    # cuenta como cambio inmediato; las metricas van por intervalo.
+    return nuevo["encendido"] != viejo["encendido"] if kind == "disyuntor" else nuevo != viejo
+
+
 def atender(dispositivo, ha, url):
     nombre, kind = dispositivo["nombre"], dispositivo["kind"]
-    backend = Backend(url, dispositivo["token"])
-    ultimo_estado, ultimo_reporte = None, 0.0
+    forzar = threading.Event()
 
-    while True:
-        inicio = time.monotonic()
-        try:
-            status, comando = backend.comando_pendiente()
-            if status == 200 and comando:
-                tipo = comando.get("tipo_comando")
-                servicio = SERVICIOS[kind].get(tipo)
-                datos = ajuste_a_ha(comando.get("parametros")) if tipo == "ajustar" else None
-                if tipo == "ajustar" and datos is None:
-                    servicio = None  # parametros invalidos: se rechaza
-                # ttl_ms: la orden vence a los 5 s; si ya vencio, no se ejecuta.
-                if servicio and comando.get("ttl_ms", 0) > 0:
-                    ha.servicio(servicio, dispositivo["entity"], datos)
-                    log(nombre, "ejecutado", tipo)
-                    time.sleep(0.8)  # que HA refleje el cambio antes de reportar
-                    ultimo_reporte = 0.0
-                else:
-                    log(nombre, "orden rechazada o vencida", tipo)
-                backend.consumido(comando["id"])
+    def ejecutar(comando):
+        tipo = comando.get("tipo_comando")
+        servicio = SERVICIOS[kind].get(tipo)
+        datos = ajuste_a_ha(comando.get("parametros")) if tipo == "ajustar" else None
+        if tipo == "ajustar" and datos is None:
+            servicio = None  # parametros invalidos: se rechaza
+        # ttl_ms: la orden vence a los 5 s; si ya vencio, no se ejecuta.
+        if servicio and comando.get("ttl_ms", 0) > 0:
+            ha.servicio(servicio, dispositivo["entity"], datos)
+            log(nombre, "ejecutado", tipo)
+            time.sleep(0.8)  # que HA refleje el cambio antes de reportar
+            forzar.set()
+        else:
+            log(nombre, "orden rechazada o vencida", tipo)
 
-            estado = leer_estado(ha, dispositivo)
-            ahora = time.monotonic()
-            # En el disyuntor la potencia varia en cada lectura: solo encender/
-            # apagar cuenta como cambio inmediato; las metricas van por intervalo.
-            cambio = estado is not None and (
-                ultimo_estado is None
-                or (estado["encendido"] != ultimo_estado["encendido"] if kind == "disyuntor" else estado != ultimo_estado)
-            )
-            if estado is not None and (cambio or ahora - ultimo_reporte >= REPORTE_CADA_S[kind]):
-                backend.reportar(estado)
-                ultimo_estado, ultimo_reporte = estado, ahora
-        except Exception as error:  # noqa: BLE001 - el hilo nunca debe morir
-            log(nombre, "error:", error)
-            time.sleep(5)
-        time.sleep(max(0.0, 1.0 - (time.monotonic() - inicio)))
+    threading.Thread(target=vigilar_estado, daemon=True, args=(
+        dispositivo, url, lambda: leer_estado(ha, dispositivo),
+        lambda nuevo, viejo: cambio_relevante(kind, nuevo, viejo),
+        lambda: intervalo_reporte(kind), forzar)).start()
+    escuchar_ordenes(dispositivo, url, ejecutar)
 
 
 def main():
@@ -395,6 +446,13 @@ if __name__ == "__main__":
         assert extraer_jpegs(b"\xff\xd8sin fin") == ([], b"\xff\xd8sin fin")
         assert extraer_jpegs(b"sin inicio") == ([], b"")
         assert set(GIROS) == {"arriba", "abajo", "izquierda", "derecha"}  # igual a DIRECCIONES del backend
+        PAGINA["abierta"] = True
+        assert intervalo_reporte("disyuntor") == 5
+        PAGINA["abierta"] = False
+        assert intervalo_reporte("disyuntor") == 60
+        assert intervalo_reporte("luz") == float("inf")  # luces: solo cambios
+        assert cambio_relevante("disyuntor", {"encendido": True, "potencia_w": 1}, {"encendido": True, "potencia_w": 9}) is False
+        assert cambio_relevante("luz", {"encendido": True, "brillo": 5}, {"encendido": True, "brillo": 6}) is True
         print("selftest OK")
     else:
         main()

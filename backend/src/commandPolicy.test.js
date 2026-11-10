@@ -14,8 +14,8 @@ test('ordenes vencidas, offline y entrega unica (tablas temporales, rollback)', 
       created_at timestamptz DEFAULT clock_timestamp(), expires_at timestamptz,
       delivered_at timestamptz, consumido_at timestamptz, parametros jsonb) ON COMMIT DROP`);
     await client.query(`INSERT INTO dispositivos VALUES (1, NULL), (2, clock_timestamp())`);
-    assert.equal((await client.query(createCommandSql, [1, 'activar', 1, null])).rowCount, 0);
-    const fresh = await client.query(createCommandSql, [2, 'activar', 1, null]);
+    assert.equal((await client.query(createCommandSql, [1, 'activar', 1, null, false])).rowCount, 0);
+    const fresh = await client.query(createCommandSql, [2, 'activar', 1, null, false]);
     assert.equal(fresh.rowCount, 1);
     await client.query(`INSERT INTO comandos (dispositivo_id, tipo_comando, expires_at)
       VALUES (2, 'activar', clock_timestamp() - interval '8 hours')`);
@@ -25,11 +25,15 @@ test('ordenes vencidas, offline y entrega unica (tablas temporales, rollback)', 
     // ACK perdido, nuevo polling/reconexion: no vuelve a entregar ninguna orden.
     assert.equal((await client.query(claimCommandSql, [2])).rowCount, 0);
     await client.query(`UPDATE dispositivos SET last_seen_at = clock_timestamp() - interval '11 seconds' WHERE id=2`);
-    assert.equal((await client.query(createCommandSql, [2, 'activar', 1, null])).rowCount, 0);
+    assert.equal((await client.query(createCommandSql, [2, 'activar', 1, null, false])).rowCount, 0);
     // Los parametros viajan intactos hasta el dispositivo.
     await client.query(`UPDATE dispositivos SET last_seen_at = clock_timestamp() WHERE id=2`);
-    await client.query(createCommandSql, [2, 'ajustar', 1, JSON.stringify({ brillo: 40 })]);
+    await client.query(createCommandSql, [2, 'ajustar', 1, JSON.stringify({ brillo: 40 }), false]);
     assert.deepEqual((await client.query(claimCommandSql, [2])).rows[0].parametros, { brillo: 40 });
+    // Sin contacto reciente pero con espera larga abierta: la orden se acepta.
+    await client.query(`UPDATE dispositivos SET last_seen_at = clock_timestamp() - interval '30 seconds' WHERE id=2`);
+    assert.equal((await client.query(createCommandSql, [2, 'activar', 1, null, false])).rowCount, 0);
+    assert.equal((await client.query(createCommandSql, [2, 'activar', 1, null, true])).rowCount, 1);
     console.log('Offline, expiracion y no repeticion: OK');
   } finally {
     await client.query('ROLLBACK');

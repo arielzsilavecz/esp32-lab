@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { subscribeToDeviceState } from '../stateEvents.js';
+import { avisarOrden, despertarTodos, dispositivoEsperando } from '../esperaComandos.js';
 import { createCommandSql } from '../commandPolicy.js';
 import { validarAjusteLuz } from '../lightParams.js';
 import { borrarCuadro, leerCuadro, validarMovimiento } from '../camaraCuadros.js';
@@ -71,6 +72,7 @@ dispositivosRouter.get('/eventos', (req, res) => {
     res.write(`event: estado\ndata: ${JSON.stringify(update)}\n\n`);
   };
   const unsubscribe = subscribeToDeviceState(sendState);
+  despertarTodos(); // el puente se entera ya de que hay alguien mirando
   const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 20000);
 
   req.on('close', () => {
@@ -118,11 +120,12 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
 
   const result = await pool.query(
     createCommandSql,
-    [id, tipoComando, req.session.userId, parametros]
+    [id, tipoComando, req.session.userId, parametros, dispositivoEsperando(id)]
   );
   if (result.rowCount === 0) {
     return res.status(409).json({ error: `${tipo === 'porton' ? 'ESP32' : 'Dispositivo'} sin conexión reciente. La orden no se guardó.` });
   }
+  avisarOrden(id); // la espera larga del dispositivo la recibe al instante
   // Al detener, la imagen deja de estar disponible ya, no a los 15 s.
   if (tipo === 'camara' && tipoComando === 'detener') borrarCuadro(id);
   res.status(201).json(result.rows[0]);

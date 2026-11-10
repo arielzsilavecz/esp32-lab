@@ -11,12 +11,15 @@ test('disyuntor: guarda cambio de encendido o 1 vez por minuto, no cada 5 s', ()
   assert.equal(debePersistir('disyuntor', 1, { encendido: false, potencia_w: 0 }, t0 + 92_000), true);
 });
 
-test('luz: guarda cambios, y un latido cada 10 min', () => {
+test('luz y camara: solo cambios, nunca latidos', () => {
   const t0 = 2_000_000;
   assert.equal(debePersistir('luz', 2, { encendido: true }, t0), true);
   assert.equal(debePersistir('luz', 2, { encendido: true }, t0 + 30_000), false);
   assert.equal(debePersistir('luz', 2, { encendido: false }, t0 + 40_000), true);
-  assert.equal(debePersistir('luz', 2, { encendido: false }, t0 + 40_000 + 600_000), true);
+  assert.equal(debePersistir('luz', 2, { encendido: false }, t0 + 40_000 + 86_400_000), false);
+  assert.equal(debePersistir('camara', 7, { transmitiendo: false }, t0), true);
+  assert.equal(debePersistir('camara', 7, { transmitiendo: false }, t0 + 86_400_000), false);
+  assert.equal(debePersistir('camara', 7, { transmitiendo: true }, t0 + 86_400_001), true);
 });
 
 test('tipos sin politica guardan siempre', () => {

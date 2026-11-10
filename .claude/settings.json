@@ -98,7 +98,13 @@
       "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/bridge-test.py')",
       "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'python3 -m py_compile /tmp/bridge-test.py && python3 /tmp/bridge-test.py --selftest; rm -f /tmp/bridge-test.py')",
       "Bash(PORT=4700 node dev/preview.js)",
-      "Bash(curl -s -o /dev/null http://localhost:4700/)"
+      "Bash(curl -s -o /dev/null http://localhost:4700/)",
+      "Bash(node --test src/esperaComandos.test.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'python3 /tmp/bridge-test.py --selftest; rm -f /tmp/bridge-test.py')",
+      "Bash(timeout 60 node \"C:/Users/ariel/AppData/Local/Temp/claude/f075be83d637ed5b/188147d5-d51f-430a-a84c-84b026d3f70a/scratchpad/prueba-espera.mjs\" \"C:/Users/ariel/OneDrive/Escritorio/esp32-lab/backend\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/bridge.py')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'set -e; python3 /tmp/bridge.py --selftest; sudo install -m 755 /tmp/bridge.py /usr/local/bin/neo-bridge.py; rm /tmp/bridge.py; sudo systemctl restart neo-bridge; sleep 20; systemctl is-active neo-bridge; sudo journalctl -u neo-bridge --since \"-25s\" --no-pager -o cat | grep -vi \"^Started\\\\|^Stopp\" | tail -5; echo \"errores: $\\(sudo journalctl -u neo-bridge --since \"-25s\" --no-pager -o cat | grep -ci error\\)\"')"
     ]
   }
 }

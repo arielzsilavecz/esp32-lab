@@ -15,3 +15,9 @@ export function subscribeToDeviceState(listener) {
   stateEvents.on('estado', listener);
   return () => stateEvents.off('estado', listener);
 }
+
+// Cada pagina abierta (y visible: la pagina cierra su canal al ocultarse) es un
+// suscriptor. El puente lo usa para mandar metricas en vivo solo si alguien mira.
+export function hayPaginasAbiertas() {
+  return stateEvents.listenerCount('estado') > 0;
+}

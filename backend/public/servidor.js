@@ -580,5 +580,5 @@ function crearSeccionServidor(dispositivo, card, nombre) {
   });
   leerEstado(dispositivo.id).then(({ estado, estado_actualizado_at }) => mostrarActual(estado, estado_actualizado_at));
   // Mueve la ventana aunque no lleguen lecturas (si NEO se apaga, el hueco se ve).
-  setInterval(() => { if (desplegable.open) dibujarGraficos(); }, 60000);
+  setInterval(() => { if (desplegable.open && !document.hidden) dibujarGraficos(); }, 60000);
 }

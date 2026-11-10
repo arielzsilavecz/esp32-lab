@@ -709,7 +709,7 @@ function crearTarjetaDisyuntor(dispositivo, card, nombre) {
   cargarDia(fechaEl.value).catch((error) => { resumenEl.textContent = error.message; });
   // El historial se guarda 1 vez por minuto: refrescar el grafico mas seguido no aporta.
   setInterval(() => {
-    if (fechaEl.value === fechaAR()) cargarDia(fechaEl.value).catch(() => {});
+    if (!document.hidden && fechaEl.value === fechaAR()) cargarDia(fechaEl.value).catch(() => {});
   }, 60000);
 }
 
@@ -1108,8 +1108,24 @@ function crearSelectorFecha(alCambiar) {
   return input;
 }
 
+// El canal en vivo solo esta abierto con la pagina visible: oculta, Railway no
+// manda nada y el puente sabe que nadie mira (metricas del disyuntor cada 60 s
+// en vez de 5 s). Al volver se reabre y se releen los estados (ADR-0013).
+let canalEnVivo = null;
+
+function refrescarEstados() {
+  for (const [id, mostrar] of liveViews) {
+    leerEstado(id).then(({ estado, estado_actualizado_at }) => mostrar({ id: Number(id), estado, estado_actualizado_at })).catch(() => {});
+  }
+  for (const [id, view] of zoneViews) {
+    cargarEstadoZonas(id, view.zonasEl, view.actualizadoEl, view.temperaturaEl).catch(() => {});
+  }
+}
+
 function conectarEstadoEnVivo() {
+  if (canalEnVivo) return;
   const events = new EventSource('/api/dispositivos/eventos');
+  canalEnVivo = events;
 
   events.addEventListener('estado', (event) => {
     const update = JSON.parse(event.data);
@@ -1316,8 +1332,9 @@ async function init() {
       zoneViews.set(String(dispositivo.id), { zonasEl, actualizadoEl, temperaturaEl, logEl, fechaEl });
       cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl);
       cargarLogZonas(dispositivo.id, logEl, fechaEl.value);
-      setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl),
-        ZONE_FALLBACK_REFRESH_MS);
+      setInterval(() => {
+        if (!document.hidden) cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl);
+      }, ZONE_FALLBACK_REFRESH_MS);
       continue;
     }
 
@@ -1370,9 +1387,17 @@ async function init() {
 
   conectarEstadoEnVivo();
   actualizarConexion();
-  setInterval(actualizarConexion, 5000);
+  // Nada de consultas con la pagina oculta (otra pestaña, app en segundo plano).
+  setInterval(() => { if (!document.hidden) actualizarConexion(); }, 5000);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) actualizarConexion();
+    if (document.hidden) {
+      canalEnVivo?.close();
+      canalEnVivo = null;
+      return;
+    }
+    conectarEstadoEnVivo();
+    refrescarEstados();
+    actualizarConexion();
   });
 }
 
