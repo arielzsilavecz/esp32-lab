@@ -21,3 +21,5 @@ Thumbs.db
 
 # Secretos de firmware (WiFi, token del backend)
 firmware/lib/config/Secrets.h
+
+graphify-out/

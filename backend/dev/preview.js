@@ -23,6 +23,7 @@ const dispositivos = [
   { id: 5, nombre: 'Luz 2', tipo: 'luz' },
   { id: 6, nombre: 'Disyuntor oficina', tipo: 'disyuntor' },
   { id: 7, nombre: 'Cámara entrada', tipo: 'camara' },
+  { id: 8, nombre: 'Asistente', tipo: 'asistente' },
 ];
 const estados = {
   2: { zonas: [false, false, true, false, false, false], temperaturaC: 41.3 },
@@ -176,6 +177,14 @@ http.createServer(async (req, res) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#3b4a3a"/><rect y="230" width="640" height="130" fill="#56724f"/><g stroke="#c9ccc4" stroke-width="4">${Array.from({ length: 32 }, (_, i) => `<line x1="${i * 20 + 10}" y1="60" x2="${i * 20 + 10}" y2="235"/>`).join('')}</g><text x="16" y="30" fill="#fff" font-family="monospace" font-size="20">VISTA PREVIA ${hora}</text></svg>`;
     res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'X-Capturada': String(Date.now()), 'Cache-Control': 'no-store' });
     return res.end(svg);
+  }
+  // Asistente: no hay modelo; se imita la secuencia "pensando" -> respuesta.
+  if (p === '/api/dispositivos/8/comandos' && req.method === 'POST') {
+    const { parametros } = await leerCuerpo(req);
+    const orden = Date.now();
+    setTimeout(() => { estados[8] = { orden, texto: parametros.texto, pensando: true }; publicar(8); }, 300);
+    setTimeout(() => { estados[8] = { orden, texto: parametros.texto, respuesta: 'Luz 1: 30 %, blanco 2700 K' }; publicar(8); }, 3000);
+    return json(res, 201, { id: orden });
   }
   if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/comandos$/)) && req.method === 'POST') {
     const { tipo_comando: tipo, parametros } = await leerCuerpo(req);

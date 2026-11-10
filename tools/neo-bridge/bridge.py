@@ -10,15 +10,21 @@ Las camaras (kind "camara", ADR-0012) no pasan por Home Assistant: con la orden
 "ver" se lanza ffmpeg sobre su RTSP y se suben cuadros JPEG al backend durante
 2 min (o hasta "detener"). Sin pedido no hay ffmpeg ni trafico.
 
+El asistente (kind "asistente", ADR-0014) recibe ordenes escritas, las resuelve
+con reglas o con el modelo local (neo-llm, 127.0.0.1:8090) y actua sobre las
+luces que tengan "id" (el del backend) en la config.
+
 Solo biblioteca estandar. Config en /etc/neo-bridge.json y el token de Home
 Assistant en /etc/neo-bridge-ha.token (ambos root, 600, fuera del repo).
 """
 import http.client
 import json
+import re
 import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -340,6 +346,137 @@ def atender_camara(dispositivo, url):
     escuchar_ordenes(dispositivo, url, ejecutar)
 
 
+# --- Asistente (ADR-0014): orden escrita -> acciones sobre las luces --------
+# Primero reglas (al instante); el modelo local solo si la frase no encaja.
+# Solo luces: el esquema del modelo no tiene forma de nombrar otra cosa.
+
+VERBOS = {"apag": "apagar", "prend": "encender", "encend": "encender"}
+RELLENO = {"la", "las", "el", "los", "luz", "luces", "del", "de", "en", "al", "a", "y", "todo",
+           "todas", "toda", "todos", "por", "favor", "porfa"}
+
+
+def normalizar(texto):
+    sin_tildes = unicodedata.normalize("NFKD", texto.lower()).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", sin_tildes).strip()
+
+
+def regla_simple(texto, luces):
+    """'apagá el living', 'prendé todas': acciones sin modelo, o None si la
+    frase pide algo mas (valores, colores, dos verbos) y le toca al modelo."""
+    palabras = re.findall(r"[a-z0-9%#]+", normalizar(texto))
+    verbos = {VERBOS[p] for palabra in palabras for p in VERBOS if palabra.startswith(p)}
+    if len(verbos) != 1:
+        return None
+    nombres = {l["id"]: normalizar(l["nombre"]).split() for l in luces}
+    elegidas = [i for i, n in nombres.items() if n and " ".join(n) in " ".join(palabras)]
+    if not elegidas and RELLENO.intersection(palabras) & {"todo", "todas", "luces"}:
+        elegidas = list(nombres)
+    resto = [p for p in palabras if p not in RELLENO and not any(p.startswith(v) for v in VERBOS)
+             and not any(p in n for n in nombres.values())]
+    if not elegidas or resto:
+        return None
+    accion = verbos.pop()
+    return [{"luz": i, "accion": accion} for i in elegidas]
+
+
+PROMPT_LUCES = """Convertís órdenes para las luces de una casa a JSON. Luces:
+{luces}
+Acciones: encender, apagar, ajustar. En ajustar poné solo lo que se pide: brillo (1-100) y, si se pide, temperatura_k (blanco: 2700 cálido, 4000 neutro, 6500 frío) o color (#rrggbb), nunca los dos.
+"todas"/"todo" son todas las luces. Si no es una orden para las luces: {{"acciones":[]}}.
+Ejemplos:
+"living al 30% cálido" -> {{"acciones":[{{"luz":{a},"accion":"ajustar","brillo":30,"temperatura_k":2700}}]}}
+"todo en azul" -> {{"acciones":[{{"luz":{a},"accion":"ajustar","color":"#0000ff"}},{{"luz":{b},"accion":"ajustar","color":"#0000ff"}}]}}"""
+
+
+def pedir_modelo(url_llm, texto, luces):
+    ids = [l["id"] for l in luces]
+    accion = {"type": "object", "additionalProperties": False, "required": ["luz", "accion"], "properties": {
+        "luz": {"enum": ids}, "accion": {"enum": ["encender", "apagar", "ajustar"]},
+        "brillo": {"type": "integer", "minimum": 1, "maximum": 100},
+        "temperatura_k": {"type": "integer", "minimum": TEMPERATURA_K[0], "maximum": TEMPERATURA_K[1]},
+        "color": {"type": "string", "pattern": "^#[0-9a-f]{6}$"}}}
+    esquema = {"type": "object", "required": ["acciones"], "additionalProperties": False,
+               "properties": {"acciones": {"type": "array", "items": accion, "maxItems": 8}}}
+    sistema = PROMPT_LUCES.format(luces="\n".join(f'- {l["id"]}: "{l["nombre"]}"' for l in luces),
+                                  a=ids[0], b=ids[-1])
+    cuerpo = {"messages": [{"role": "system", "content": sistema}, {"role": "user", "content": texto}],
+              "temperature": 0, "max_tokens": 200,
+              "response_format": {"type": "json_schema", "json_schema": {"schema": esquema}}}
+    req = urllib.request.Request(url_llm + "/v1/chat/completions", json.dumps(cuerpo).encode(),
+                                 {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        return json.loads(json.load(resp)["choices"][0]["message"]["content"])["acciones"]
+
+
+def limpiar_accion(accion, ids, texto):
+    """Corrige lo que el modelo chico mezcla y valida igual que una orden de la
+    pagina. Devuelve (id, tipo, ajuste) o None."""
+    if not isinstance(accion, dict) or accion.get("luz") not in ids:
+        return None
+    tipo = accion.get("accion")
+    ajuste = {k: accion[k] for k in ("brillo", "temperatura_k", "color") if k in accion}
+    # A veces manda temperatura y color juntos: decide lo que dice el texto.
+    if "temperatura_k" in ajuste and "color" in ajuste:
+        ajuste.pop("color" if re.search(r"blanc|calid|frio|neutr", normalizar(texto)) else "temperatura_k")
+    if tipo == "apagar":
+        ajuste = {}
+    elif tipo == "encender" and ajuste:
+        tipo = "ajustar"  # "prendé el living en rojo"
+    elif tipo == "ajustar" and not ajuste:
+        tipo = "encender"
+    if tipo not in ("encender", "apagar", "ajustar") or (tipo == "ajustar" and ajuste_a_ha(ajuste) is None):
+        return None
+    return accion["luz"], tipo, ajuste
+
+
+def describir(nombre, tipo, ajuste):
+    if tipo != "ajustar":
+        return f"{nombre}: {'apagada' if tipo == 'apagar' else 'encendida'}"
+    partes = [f"{ajuste['brillo']} %"] if "brillo" in ajuste else []
+    if "temperatura_k" in ajuste:
+        partes.append(f"blanco {ajuste['temperatura_k']} K")
+    if "color" in ajuste:
+        partes.append(f"color {ajuste['color']}")
+    return f"{nombre}: {', '.join(partes)}"
+
+
+def atender_asistente(dispositivo, ha, luces_config, url, url_llm):
+    backend = Backend(url, dispositivo["token"])
+
+    def ejecutar(comando):
+        parametros = comando.get("parametros") or {}
+        texto, luces = parametros.get("texto", ""), parametros.get("luces") or []
+        luces = [l for l in luces if l.get("id") in luces_config]  # solo las que NEO maneja
+        orden = comando.get("id")
+        if comando.get("tipo_comando") != "interpretar" or comando.get("ttl_ms", 0) <= 0 or not luces:
+            backend.reportar({"orden": orden, "texto": texto, "respuesta": "No se pudo procesar la orden."})
+            return
+        acciones = regla_simple(texto, luces)
+        if acciones is None:
+            backend.reportar({"orden": orden, "texto": texto, "pensando": True})
+            try:
+                acciones = pedir_modelo(url_llm, texto, luces)
+            except Exception as error:  # noqa: BLE001
+                log("asistente: modelo fallo", error)
+                backend.reportar({"orden": orden, "texto": texto, "respuesta": "El modelo local no respondió."})
+                return
+        nombres = {l["id"]: l["nombre"] for l in luces}
+        hechas = []
+        for accion in acciones:
+            limpia = limpiar_accion(accion, nombres, texto)
+            if limpia is None:
+                continue
+            luz, tipo, ajuste = limpia
+            ha.servicio(SERVICIOS["luz"][tipo], luces_config[luz]["entity"],
+                        ajuste_a_ha(ajuste) if tipo == "ajustar" else None)
+            hechas.append(describir(nombres[luz], tipo, ajuste))
+        log("asistente:", texto, "->", hechas or "nada")
+        backend.reportar({"orden": orden, "texto": texto,
+                          "respuesta": " · ".join(hechas) if hechas else "No entendí qué hacer con las luces."})
+
+    escuchar_ordenes(dispositivo, url, ejecutar)
+
+
 def leer_estado(ha, dispositivo):
     principal = ha.estado(dispositivo["entity"])
     if principal is None or principal.get("state") not in ("on", "off"):
@@ -412,7 +549,14 @@ def main():
     with open(config["ha_token_file"]) as f:
         ha = HomeAssistant(config.get("ha_url", "http://localhost:8123"), f.read().strip())
 
+    # El asistente ubica cada foco por su id del backend (campo "id" en la config).
+    luces = {d["id"]: d for d in config["devices"] if d["kind"] == "luz" and "id" in d}
     for dispositivo in config["devices"]:
+        if dispositivo["kind"] == "asistente":
+            threading.Thread(target=atender_asistente, daemon=True, args=(
+                dispositivo, ha, luces, config["url"], config.get("llm_url", "http://127.0.0.1:8090"))).start()
+            log("atendiendo", dispositivo["nombre"], "asistente con", len(luces), "luces")
+            continue
         if dispositivo["kind"] == "camara":
             threading.Thread(target=atender_camara, args=(dispositivo, config["url"]), daemon=True).start()
             log("atendiendo", dispositivo["nombre"], "camara")
@@ -453,6 +597,22 @@ if __name__ == "__main__":
         assert intervalo_reporte("luz") == float("inf")  # luces: solo cambios
         assert cambio_relevante("disyuntor", {"encendido": True, "potencia_w": 1}, {"encendido": True, "potencia_w": 9}) is False
         assert cambio_relevante("luz", {"encendido": True, "brillo": 5}, {"encendido": True, "brillo": 6}) is True
+        luces = [{"id": 4, "nombre": "Living"}, {"id": 5, "nombre": "Cocina"}]
+        assert regla_simple("Apagá la luz del living", luces) == [{"luz": 4, "accion": "apagar"}]
+        assert regla_simple("prendé todas las luces", luces) == [{"luz": 4, "accion": "encender"}, {"luz": 5, "accion": "encender"}]
+        assert regla_simple("encendé la cocina", luces) == [{"luz": 5, "accion": "encender"}]
+        for al_modelo in ("living en rojo", "cocina al 30%", "apagá el living y prendé la cocina", "qué hora es", "apagá"):
+            assert regla_simple(al_modelo, luces) is None, al_modelo
+        ids = {4: "Living", 5: "Cocina"}
+        assert limpiar_accion({"luz": 5, "accion": "ajustar", "brillo": 30, "temperatura_k": 2500, "color": "#e0e0e0"},
+                              ids, "cocina al 30% en blanco cálido") == (5, "ajustar", {"brillo": 30, "temperatura_k": 2500})
+        assert limpiar_accion({"luz": 4, "accion": "ajustar", "temperatura_k": 6535, "color": "#ff0000"},
+                              ids, "living en rojo") == (4, "ajustar", {"color": "#ff0000"})
+        assert limpiar_accion({"luz": 4, "accion": "encender", "color": "#ff0000"}, ids, "x") == (4, "ajustar", {"color": "#ff0000"})
+        assert limpiar_accion({"luz": 4, "accion": "apagar", "brillo": 3}, ids, "x") == (4, "apagar", {})
+        assert limpiar_accion({"luz": 6, "accion": "apagar"}, ids, "x") is None  # el disyuntor no es una luz
+        assert limpiar_accion({"luz": 4, "accion": "activar"}, ids, "x") is None
+        assert describir("Cocina", "ajustar", {"brillo": 30, "temperatura_k": 2700}) == "Cocina: 30 %, blanco 2700 K"
         print("selftest OK")
     else:
         main()

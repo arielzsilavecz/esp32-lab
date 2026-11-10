@@ -1338,6 +1338,12 @@ async function init() {
       continue;
     }
 
+    // El asistente solo maneja luces: vive dentro de su tarjeta, no tiene una propia.
+    if (dispositivo.tipo === 'asistente') {
+      if (grupoLuces) crearAsistente(dispositivo, grupoLuces);
+      continue;
+    }
+
     if (dispositivo.tipo === 'camara') {
       crearTarjetaCamara(dispositivo, card, nombre);
       listEl.appendChild(card);

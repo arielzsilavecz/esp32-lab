@@ -1,0 +1,24 @@
+# Modelo de lenguaje local de NEO (ADR-0014). Solo escucha en 127.0.0.1: lo usa
+# el puente, nunca se expone. Prioridad baja para no quitarle CPU a Home
+# Assistant, la grabacion ni el puente.
+#
+# Instalacion (binarios de https://github.com/ggml-org/llama.cpp/releases, build
+# ubuntu-x64, en /opt/llm/bin; modelo en /opt/llm/modelos):
+#   sudo cp neo-llm.service /etc/systemd/system/ && sudo systemctl enable --now neo-llm
+[Unit]
+Description=NEO: modelo de lenguaje local (llama.cpp, solo 127.0.0.1)
+After=network.target
+
+[Service]
+# Cargado siempre (~2,6 GB): dormirlo pierde el prompt ya procesado y la primera
+# orden tardaria ~30 s mas. -np 1: un pedido a la vez.
+ExecStart=/opt/llm/bin/llama-server -m /opt/llm/modelos/Qwen3.5-2B-Q4_K_M.gguf -t 2 -c 4096 -np 1 --host 127.0.0.1 --port 8090 --reasoning off --no-webui
+DynamicUser=yes
+Nice=15
+CPUWeight=20
+MemoryMax=4G
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

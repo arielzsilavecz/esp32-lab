@@ -1893,6 +1893,34 @@ button:disabled {
   font-size: 13px;
 }
 
+.asistente {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  margin: 0;
+}
+
+.asistente button {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.asistente input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--toque);
+  padding: 0 12px;
+}
+
+.asistente-respuesta {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.asistente-respuesta[hidden] {
+  display: none;
+}
+
 .camara-estado {
   display: flex;
   align-items: center;

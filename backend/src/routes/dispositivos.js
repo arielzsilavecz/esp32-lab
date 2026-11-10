@@ -15,7 +15,12 @@ const COMANDOS_PERMITIDOS = {
   disyuntor: ['encender', 'apagar'],
   // ver: transmitir 2 min (o renovarlos); detener: cortar ya; mover: giro PTZ.
   camara: ['ver', 'detener', 'mover'],
+  // Orden en lenguaje natural que interpreta el modelo local de NEO. Solo luces
+  // (ADR-0014): portón y disyuntor quedan fuera a propósito.
+  asistente: ['interpretar'],
 };
+
+const TEXTO_MAX = 200;
 
 export const dispositivosRouter = Router();
 
@@ -116,6 +121,16 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     const ajuste = validar(req.body?.parametros);
     if (ajuste.error) return res.status(400).json({ error: ajuste.error });
     parametros = JSON.stringify(ajuste.parametros);
+  }
+  if (tipoComando === 'interpretar') {
+    const texto = typeof req.body?.parametros?.texto === 'string' ? req.body.parametros.texto.trim() : '';
+    if (texto.length < 1 || texto.length > TEXTO_MAX) {
+      return res.status(400).json({ error: `Escribí entre 1 y ${TEXTO_MAX} caracteres` });
+    }
+    // Los nombres actuales viajan con la orden: se renombran desde la página y
+    // NEO no los tiene.
+    const luces = await pool.query(`SELECT id, nombre FROM dispositivos WHERE tipo = 'luz' ORDER BY id`);
+    parametros = JSON.stringify({ texto, luces: luces.rows });
   }
 
   const result = await pool.query(
