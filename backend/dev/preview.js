@@ -26,8 +26,8 @@ const dispositivos = [
 const estados = {
   2: { zonas: [false, false, true, false, false, false], temperaturaC: 41.3 },
   3: { cpu_c: 52.4, gpu_c: 51, load1: 0.18, ram_pct: 14, bateria_pct: 97, enchufado: true, nucleos_mhz: [1396, 1420], disco_ssd_pct: 6, disco_hdd_pct: 1 },
-  4: { encendido: true, brillo: 65 },
-  5: { encendido: false, brillo: 49 },
+  4: { encendido: true, brillo: 65, modo: 'blanco', temperatura_k: 2450 },
+  5: { encendido: false, brillo: 49, modo: 'blanco', temperatura_k: 5000 },
   6: { encendido: true, potencia_w: 118, tension_v: 227.1, corriente_a: 0.52, energia_kwh: 424.08 },
 };
 const actualizado = {};
@@ -137,18 +137,41 @@ http.createServer(async (req, res) => {
     if (m[1] === '3') return json(res, 200, historialNeo(horas === 24 ? 24 : 1));
     return json(res, 200, m[1] === '6' ? historialDisyuntor() : m[1] === '2' ? historialAlarma() : []);
   }
+  if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/consumo$/))) {
+    // Consumo diario inventado: mas los dias de semana, nada en dias futuros y
+    // algun dia sin datos (NEO apagado).
+    const mes = new URL(req.url, 'http://local').searchParams.get('mes');
+    const hoy = new Date().toISOString().slice(0, 10);
+    const filas = [];
+    for (let d = 1; d <= 31; d += 1) {
+      const dia = `${mes}-${String(d).padStart(2, '0')}`;
+      const fecha = new Date(`${dia}T12:00:00Z`);
+      if (fecha.getUTCMonth() + 1 !== Number(mes.slice(5)) || dia > hoy || d % 11 === 0) continue;
+      const finde = [0, 6].includes(fecha.getUTCDay());
+      filas.push({ dia, kwh: +((finde ? 2.1 : 4.3) + Math.sin(d * 1.7) * 1.2).toFixed(3), potencia_max_w: Math.round(1800 + Math.sin(d) * 600) });
+    }
+    return json(res, 200, filas);
+  }
   if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/historial$/))) {
     const t = Date.now() - 3 * 3600000;
     return json(res, 200, [{ id: 9, tipo_comando: 'activar', activado_por: 'Ariel', created_at: new Date(t).toISOString(), consumido_at: new Date(t + 900).toISOString(), expires_at: new Date(t + 5000).toISOString() }]);
   }
   if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/comandos$/)) && req.method === 'POST') {
-    const { tipo_comando: tipo } = await leerCuerpo(req);
+    const { tipo_comando: tipo, parametros } = await leerCuerpo(req);
     const e = estados[m[1]];
     if (!e || !('encendido' in e)) return json(res, 403, { error: 'Vista previa: la verificación biométrica no se simula' });
     if (m[1] === '6' && tipo === 'apagar') return json(res, 403, { error: 'Vista previa: la verificación biométrica no se simula' });
     // Como el puente real: el cambio llega por el canal en vivo un instante despues.
     setTimeout(() => {
-      e.encendido = tipo === 'alternar' ? !e.encendido : tipo === 'encender';
+      if (tipo === 'ajustar') {
+        // Como light.turn_on: ajustar tambien enciende.
+        e.encendido = true;
+        if (parametros?.brillo) e.brillo = parametros.brillo;
+        if (parametros?.temperatura_k) Object.assign(e, { modo: 'blanco', temperatura_k: parametros.temperatura_k, color: undefined });
+        if (parametros?.color) Object.assign(e, { modo: 'color', color: parametros.color, temperatura_k: undefined });
+      } else {
+        e.encendido = tipo === 'alternar' ? !e.encendido : tipo === 'encender';
+      }
       publicar(m[1]);
     }, 600);
     return json(res, 201, { id: Date.now(), created_at: new Date().toISOString() });

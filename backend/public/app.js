@@ -317,10 +317,10 @@ async function disableNotifications(registration) {
 // Cada tarjeta registra aca como reflejar un update SSE de su dispositivo.
 const liveViews = new Map();
 
-async function enviarComando(dispositivoId, tipoComando) {
+async function enviarComando(dispositivoId, tipoComando, parametros) {
   return exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/comandos`, {
     method: 'POST',
-    body: JSON.stringify({ tipo_comando: tipoComando }),
+    body: JSON.stringify({ tipo_comando: tipoComando, parametros }),
     signal: AbortSignal.timeout(5000),
   }));
 }
@@ -388,6 +388,158 @@ function crearBotonEncendido(dispositivo, { verificarAlApagar = false, texto }) 
   return { boton, mostrar, ejecutar };
 }
 
+// Rango de blanco de los focos (Home Assistant: min/max_color_temp_kelvin).
+const BLANCO_MIN_K = 2000;
+const BLANCO_MAX_K = 6535;
+
+const COLORES_RAPIDOS = [
+  ['Rojo', '#ff3b30'], ['Naranja', '#ff8a00'], ['Amarillo', '#ffd60a'], ['Verde', '#34c759'],
+  ['Turquesa', '#00c7be'], ['Azul', '#0a84ff'], ['Violeta', '#8e5cff'], ['Rosa', '#ff2d92'],
+];
+
+// Aproximacion del color de un blanco de K kelvin (Tanner Helland). Solo para
+// pintar el indicador del foco; no se manda al dispositivo.
+function kelvinAHex(kelvin) {
+  const t = kelvin / 100;
+  const r = t <= 66 ? 255 : 329.698727446 * (t - 60) ** -0.1332047592;
+  const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * (t - 60) ** -0.0755148492;
+  const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  return `#${[r, g, b].map((v) => Math.round(Math.min(255, Math.max(0, v))).toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Un solo ajuste en vuelo por foco: si el usuario sigue moviendo, se guarda el
+// ultimo pedido y se manda al terminar el anterior (nunca una rafaga de ordenes).
+function crearEnviadorAjustes(dispositivo, estadoEl) {
+  let enCurso = false;
+  let pendiente = null;
+  const enviar = async (parametros) => {
+    if (enCurso) {
+      pendiente = { ...pendiente, ...parametros };
+      // Blanco y color se excluyen: gana el ultimo pedido.
+      if (parametros.color) delete pendiente.temperatura_k;
+      if (parametros.temperatura_k) delete pendiente.color;
+      return;
+    }
+    enCurso = true;
+    try {
+      await enviarComando(dispositivo.id, 'ajustar', parametros);
+    } catch (error) {
+      estadoEl.textContent = error.message;
+    } finally {
+      enCurso = false;
+      if (pendiente) {
+        const siguiente = pendiente;
+        pendiente = null;
+        enviar(siguiente);
+      }
+    }
+  };
+  return enviar;
+}
+
+function crearControlRango({ etiqueta, clase, min, max, paso = 1, formato, alSoltar }) {
+  const label = document.createElement('label');
+  label.className = 'control-rango';
+  const cabecera = document.createElement('span');
+  cabecera.className = 'control-rango-cabecera';
+  const nombre = document.createElement('span');
+  nombre.textContent = etiqueta;
+  const salida = document.createElement('output');
+  cabecera.append(nombre, salida);
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.className = clase;
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(paso);
+  label.append(cabecera, input);
+
+  input.addEventListener('input', () => { salida.textContent = formato(Number(input.value)); });
+  // "change" llega al soltar (o con cada tecla): una orden por gesto, no por pixel.
+  input.addEventListener('change', () => alSoltar(Number(input.value)));
+
+  return {
+    el: label,
+    set(valor) {
+      // No pisar el valor mientras el usuario lo esta moviendo.
+      if (document.activeElement === input || typeof valor !== 'number') return;
+      input.value = String(valor);
+      salida.textContent = formato(valor);
+    },
+  };
+}
+
+function crearPanelAjustesLuz(dispositivo, estadoEl) {
+  const enviar = crearEnviadorAjustes(dispositivo, estadoEl);
+
+  const panel = document.createElement('details');
+  panel.className = 'ajustes-luz';
+  const resumen = document.createElement('summary');
+  resumen.textContent = 'Ajustar brillo y color';
+  const cuerpo = document.createElement('div');
+  cuerpo.className = 'ajustes-cuerpo';
+
+  const brillo = crearControlRango({
+    etiqueta: 'Brillo', clase: 'rango-brillo', min: 1, max: 100,
+    formato: (v) => `${v} %`, alSoltar: (v) => enviar({ brillo: v }),
+  });
+  const blanco = crearControlRango({
+    etiqueta: 'Tono de blanco', clase: 'rango-blanco', min: BLANCO_MIN_K, max: BLANCO_MAX_K, paso: 50,
+    formato: (v) => `${v} K`, alSoltar: (v) => enviar({ temperatura_k: v }),
+  });
+  const extremos = document.createElement('div');
+  extremos.className = 'rango-extremos';
+  extremos.innerHTML = '<span>Cálido</span><span>Frío</span>';
+  blanco.el.append(extremos);
+
+  const colores = document.createElement('div');
+  colores.className = 'colores-rapidos';
+  colores.setAttribute('role', 'group');
+  colores.setAttribute('aria-label', 'Color');
+  for (const [nombreColor, hex] of COLORES_RAPIDOS) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'muestra-color';
+    boton.style.setProperty('--muestra', hex);
+    boton.setAttribute('aria-label', nombreColor);
+    boton.title = nombreColor;
+    boton.addEventListener('click', () => enviar({ color: hex }));
+    colores.append(boton);
+  }
+  // Selector nativo para cualquier otro color, sobre una muestra con todo el espectro.
+  const otro = document.createElement('label');
+  otro.className = 'muestra-color muestra-otro';
+  otro.title = 'Otro color';
+  const selector = document.createElement('input');
+  selector.type = 'color';
+  selector.value = '#ff8a00';
+  selector.setAttribute('aria-label', 'Otro color');
+  selector.addEventListener('change', () => enviar({ color: selector.value }));
+  otro.append(selector);
+  colores.append(otro);
+
+  const tituloColor = document.createElement('span');
+  tituloColor.className = 'control-rango-cabecera';
+  tituloColor.textContent = 'Color';
+
+  cuerpo.append(brillo.el, blanco.el, tituloColor, colores);
+  panel.append(resumen, cuerpo);
+
+  return {
+    el: panel,
+    mostrar(estado) {
+      brillo.set(estado?.brillo);
+      if (estado?.modo === 'blanco') blanco.set(estado.temperatura_k);
+      // En modo color el blanco queda atenuado: se ve cual de los dos esta en uso.
+      blanco.el.dataset.inactivo = String(estado?.modo === 'color');
+      for (const muestra of colores.querySelectorAll('.muestra-color:not(.muestra-otro)')) {
+        muestra.setAttribute('aria-pressed', String(estado?.modo === 'color'
+          && estado.color === muestra.style.getPropertyValue('--muestra')));
+      }
+    },
+  };
+}
+
 function crearTarjetaLuz(dispositivo, grupo, nombre) {
   const estadoEl = document.createElement('div');
   estadoEl.className = 'historial';
@@ -401,16 +553,28 @@ function crearTarjetaLuz(dispositivo, grupo, nombre) {
   texto.className = 'fila-luz-texto';
   texto.append(nombre, estadoEl);
 
+  const ajustes = crearPanelAjustesLuz(dispositivo, estadoEl);
   const fila = document.createElement('div');
   fila.className = 'fila-luz';
-  fila.append(indicador, texto, control.boton);
+  fila.append(indicador, texto, control.boton, ajustes.el);
   grupo.append(fila);
 
   const mostrar = (estado, at) => {
     control.mostrar(estado?.encendido);
+    ajustes.mostrar(estado);
     fila.dataset.on = String(estado?.encendido === true);
+    // El punto toma el color real del foco: su blanco o el color elegido.
+    const colorReal = estado?.modo === 'color' ? estado.color
+      : estado?.modo === 'blanco' && typeof estado.temperatura_k === 'number' ? kelvinAHex(estado.temperatura_k) : null;
+    if (colorReal) indicador.style.setProperty('--color-luz', colorReal);
+    else indicador.style.removeProperty('--color-luz');
+
+    const detalle = [];
+    if (estado?.encendido && typeof estado.brillo === 'number') detalle.push(`brillo ${estado.brillo} %`);
+    if (estado?.encendido && estado.modo === 'blanco' && typeof estado.temperatura_k === 'number') detalle.push(`blanco ${estado.temperatura_k} K`);
+    if (estado?.encendido && estado.modo === 'color') detalle.push('color');
     estadoEl.textContent = estado
-      ? `${estado.encendido ? 'Encendida' : 'Apagada'}${typeof estado.brillo === 'number' ? ` · brillo ${estado.brillo}%` : ''} · ${horaExactaAR(at)}`
+      ? [estado.encendido ? 'Encendida' : 'Apagada', ...detalle, horaExactaAR(at)].join(' · ')
       : 'Sin datos de NEO todavía';
   };
   liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
@@ -495,13 +659,40 @@ function crearTarjetaDisyuntor(dispositivo, card, nombre) {
     // anterior, que sirve de base para calcular la energia del dia.
     const energias = filas.map((f) => f.estado?.energia_kwh).filter((v) => typeof v === 'number').reverse();
     resumenEl.textContent = energias.length > 1
-      ? `Consumo del día: ${Math.max(0, energias.at(-1) - energias[0]).toFixed(2)} kWh`
+      ? `Consumo del día: ${numeroEs(Math.max(0, energias.at(-1) - energias[0]), 2)} kWh`
       : 'Consumo del día: sin datos suficientes';
     dibujarPotencia(graficoEl, filas, fecha);
   };
   const fechaEl = crearSelectorFecha((fecha) => cargarDia(fecha).catch((e) => { resumenEl.textContent = e.message; }));
   control.boton.addEventListener('click', () => control.ejecutar(estadoEl, (e, at) => mostrar(e, at)));
-  card.append(fila, metricas, estadoEl, fechaEl, resumenEl, graficoEl);
+
+  // Vista Dia (potencia del dia) o Mes (consumo por dia, ver consumo.js).
+  const vistaDia = document.createElement('div');
+  vistaDia.className = 'vista-dia';
+  vistaDia.append(fechaEl, resumenEl, graficoEl);
+  const mensual = crearVistaMensual(dispositivo);
+  mensual.el.hidden = true;
+  let mensualCargada = false;
+
+  const selectorVista = document.createElement('div');
+  selectorVista.className = 'segmentado';
+  selectorVista.setAttribute('role', 'group');
+  selectorVista.setAttribute('aria-label', 'Vista del consumo');
+  for (const [clave, texto] of [['dia', 'Día'], ['mes', 'Mes']]) {
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.textContent = texto;
+    boton.setAttribute('aria-pressed', String(clave === 'dia'));
+    boton.addEventListener('click', () => {
+      for (const b of selectorVista.children) b.setAttribute('aria-pressed', String(b === boton));
+      vistaDia.hidden = clave !== 'dia';
+      mensual.el.hidden = clave !== 'mes';
+      if (clave === 'mes' && !mensualCargada) { mensualCargada = true; mensual.cargar(); }
+    });
+    selectorVista.append(boton);
+  }
+
+  card.append(fila, metricas, estadoEl, selectorVista, vistaDia, mensual.el);
 
   const mostrar = (estado, at) => {
     control.mostrar(estado?.encendido);

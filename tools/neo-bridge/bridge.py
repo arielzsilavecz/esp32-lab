@@ -21,7 +21,8 @@ CONFIG_PATH = "/etc/neo-bridge.json"
 
 # Lista cerrada: el backend tambien la valida, aca es la segunda barrera.
 SERVICIOS = {
-    "luz": {"encender": "light/turn_on", "apagar": "light/turn_off", "alternar": "light/toggle"},
+    "luz": {"encender": "light/turn_on", "apagar": "light/turn_off", "alternar": "light/toggle",
+            "ajustar": "light/turn_on"},
     "disyuntor": {"encender": "switch/turn_on", "apagar": "switch/turn_off"},
 }
 # Cada cuanto reportar aunque nada cambie: el disyuntor alimenta las metricas en vivo.
@@ -33,6 +34,43 @@ UNIDADES = {"W": 1, "kW": 1000, "V": 1, "mV": 0.001, "A": 1, "mA": 0.001, "kWh":
 
 def log(*partes):
     print(*partes, flush=True)
+
+
+# Rangos de los focos CozyLife segun Home Assistant (min/max_color_temp_kelvin).
+TEMPERATURA_K = (2000, 6535)
+
+
+def ajuste_a_ha(parametros):
+    """Traduce los parametros de "ajustar" al servicio light.turn_on, o None si
+    son invalidos. Repite la validacion del backend (src/lightParams.js)."""
+    if not isinstance(parametros, dict) or not parametros:
+        return None
+    if set(parametros) - {"brillo", "temperatura_k", "color"}:
+        return None
+    if "temperatura_k" in parametros and "color" in parametros:
+        return None
+
+    def entero(v, minimo, maximo):
+        return isinstance(v, int) and not isinstance(v, bool) and minimo <= v <= maximo
+
+    datos = {}
+    if "brillo" in parametros:
+        if not entero(parametros["brillo"], 1, 100):
+            return None
+        datos["brightness_pct"] = parametros["brillo"]
+    if "temperatura_k" in parametros:
+        if not entero(parametros["temperatura_k"], *TEMPERATURA_K):
+            return None
+        datos["color_temp_kelvin"] = parametros["temperatura_k"]
+    if "color" in parametros:
+        color = parametros["color"]
+        if not (isinstance(color, str) and len(color) == 7 and color[0] == "#"):
+            return None
+        try:
+            datos["rgb_color"] = [int(color[i:i + 2], 16) for i in (1, 3, 5)]
+        except ValueError:
+            return None
+    return datos
 
 
 def a_numero(estado_ha):
@@ -65,8 +103,8 @@ class HomeAssistant:
             log("HA estado fallo", entity_id, error)
             return None
 
-    def servicio(self, servicio, entity_id):
-        self._pedir("POST", f"/api/services/{servicio}", {"entity_id": entity_id})
+    def servicio(self, servicio, entity_id, datos=None):
+        self._pedir("POST", f"/api/services/{servicio}", {"entity_id": entity_id, **(datos or {})})
 
 
 class Backend:
@@ -109,9 +147,20 @@ def leer_estado(ha, dispositivo):
         return None  # sin dato confiable: mejor no reportar que reportar basura
     estado = {"encendido": principal["state"] == "on"}
     if dispositivo["kind"] == "luz":
-        brillo = principal.get("attributes", {}).get("brightness")
+        atributos = principal.get("attributes", {})
+        brillo = atributos.get("brightness")
         if isinstance(brillo, (int, float)):
             estado["brillo"] = round(brillo * 100 / 255)
+        # Blanco (temperatura) y color son modos excluyentes del foco.
+        if atributos.get("color_mode") == "color_temp":
+            estado["modo"] = "blanco"
+            if isinstance(atributos.get("color_temp_kelvin"), int):
+                estado["temperatura_k"] = atributos["color_temp_kelvin"]
+        elif atributos.get("color_mode") in ("hs", "rgb", "xy"):
+            estado["modo"] = "color"
+            rgb = atributos.get("rgb_color")
+            if isinstance(rgb, list) and len(rgb) == 3:
+                estado["color"] = "#" + "".join(f"{int(c):02x}" for c in rgb)
     for clave, entity_id in dispositivo.get("sensors", {}).items():
         estado[clave] = a_numero(ha.estado(entity_id))
     return estado
@@ -129,9 +178,12 @@ def atender(dispositivo, ha, url):
             if status == 200 and comando:
                 tipo = comando.get("tipo_comando")
                 servicio = SERVICIOS[kind].get(tipo)
+                datos = ajuste_a_ha(comando.get("parametros")) if tipo == "ajustar" else None
+                if tipo == "ajustar" and datos is None:
+                    servicio = None  # parametros invalidos: se rechaza
                 # ttl_ms: la orden vence a los 5 s; si ya vencio, no se ejecuta.
                 if servicio and comando.get("ttl_ms", 0) > 0:
-                    ha.servicio(servicio, dispositivo["entity"])
+                    ha.servicio(servicio, dispositivo["entity"], datos)
                     log(nombre, "ejecutado", tipo)
                     time.sleep(0.8)  # que HA refleje el cambio antes de reportar
                     ultimo_reporte = 0.0
@@ -179,6 +231,14 @@ if __name__ == "__main__":
         assert a_numero({"state": "unavailable", "attributes": {}}) is None
         assert a_numero(None) is None
         assert SERVICIOS["disyuntor"].get("alternar") is None  # el disyuntor no se alterna a ciegas
+        assert SERVICIOS["disyuntor"].get("ajustar") is None
+        assert ajuste_a_ha({"brillo": 60}) == {"brightness_pct": 60}
+        assert ajuste_a_ha({"temperatura_k": 3000, "brillo": 5}) == {"color_temp_kelvin": 3000, "brightness_pct": 5}
+        assert ajuste_a_ha({"color": "#ff6a00"}) == {"rgb_color": [255, 106, 0]}
+        for malo in (None, {}, {"brillo": 0}, {"brillo": True}, {"brillo": 50.5}, {"temperatura_k": 9000},
+                     {"color": "#zzzzzz"}, {"color": "red"}, {"color": "#fff", "brillo": 3},
+                     {"temperatura_k": 3000, "color": "#ffffff"}, {"efecto": 1}):
+            assert ajuste_a_ha(malo) is None, malo
         print("selftest OK")
     else:
         main()

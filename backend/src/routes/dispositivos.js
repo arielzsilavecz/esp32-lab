@@ -3,12 +3,13 @@ import { pool } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { subscribeToDeviceState } from '../stateEvents.js';
 import { createCommandSql } from '../commandPolicy.js';
+import { validarAjusteLuz } from '../lightParams.js';
 
 // Lista cerrada de comandos por tipo: tipo_comando es texto libre en la base, asi
 // que sin esto cualquier sesion podria encolar ordenes arbitrarias.
 const COMANDOS_PERMITIDOS = {
   porton: ['activar'],
-  luz: ['encender', 'apagar', 'alternar'],
+  luz: ['encender', 'apagar', 'alternar', 'ajustar'],
   disyuntor: ['encender', 'apagar'],
 };
 
@@ -103,9 +104,17 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     }
   }
 
+  // Solo "ajustar" lleva valores; cualquier otro comando ignora lo que venga.
+  let parametros = null;
+  if (tipoComando === 'ajustar') {
+    const ajuste = validarAjusteLuz(req.body?.parametros);
+    if (ajuste.error) return res.status(400).json({ error: ajuste.error });
+    parametros = JSON.stringify(ajuste.parametros);
+  }
+
   const result = await pool.query(
     createCommandSql,
-    [id, tipoComando, req.session.userId]
+    [id, tipoComando, req.session.userId, parametros]
   );
   if (result.rowCount === 0) {
     return res.status(409).json({ error: `${tipo === 'porton' ? 'ESP32' : 'Dispositivo'} sin conexión reciente. La orden no se guardó.` });
@@ -135,6 +144,39 @@ dispositivosRouter.get('/:id/estado', async (req, res) => {
 // ?fecha=YYYY-MM-DD devuelve el dia completo en hora de Argentina (hoy si no
 // viene), mas el ultimo snapshot anterior a ese dia: sin el, la primera
 // transicion del dia no tendria contra que compararse.
+// Consumo por dia de un mes (vista mensual del disyuntor): ?mes=YYYY-MM.
+// kWh del dia = ultimo contador del dia menos el ultimo del dia anterior con
+// datos (lag), asi no se pierde el consumo entre la ultima lectura de un dia y
+// la primera del siguiente. Se lee un dia antes del mes solo como base.
+// GREATEST(0, ...) evita negativos si el medidor se reinicia.
+dispositivosRouter.get('/:id/consumo', async (req, res) => {
+  const mes = req.query.mes;
+  if (typeof mes !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)) {
+    return res.status(400).json({ error: 'mes debe ser YYYY-MM' });
+  }
+  const result = await pool.query(
+    `WITH lecturas AS (
+       SELECT (created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date AS dia,
+              (estado->>'energia_kwh')::numeric AS energia,
+              (estado->>'potencia_w')::numeric AS potencia
+       FROM estados
+       WHERE dispositivo_id = $1 AND estado ? 'energia_kwh'
+         AND created_at >= ($2::date - 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires'
+         AND created_at < (($2::date + interval '1 month')::date)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires'
+     ), dias AS (
+       SELECT dia, min(energia) AS inicio, max(energia) AS fin, max(potencia) AS potencia_max
+       FROM lecturas GROUP BY dia
+     ), consumo AS (
+       SELECT dia, GREATEST(0, fin - COALESCE(lag(fin) OVER (ORDER BY dia), inicio)) AS kwh, potencia_max
+       FROM dias
+     )
+     SELECT to_char(dia, 'YYYY-MM-DD') AS dia, round(kwh, 3)::float AS kwh, potencia_max::float AS potencia_max_w
+     FROM consumo WHERE dia >= $2::date ORDER BY dia`,
+    [req.params.id, `${mes}-01`]
+  );
+  res.json(result.rows);
+});
+
 dispositivosRouter.get('/:id/estados', async (req, res) => {
   const { id } = req.params;
   const fecha = req.query.fecha ?? null;

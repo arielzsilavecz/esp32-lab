@@ -55,4 +55,20 @@ del disyuntor en vivo e historial consultable, como en la app Smart Life.
 - El token de Home Assistant vive en NEO (`/etc/neo-bridge-ha.token`, root 600) y da
   control total de Home Assistant: si NEO se compromete, hay que revocarlo desde el
   perfil de Home Assistant.
-- Pendiente: brillo y color de las luces (etapa 2).
+
+## Etapa 2: brillo, blanco y color (2026-11-09)
+
+- **`comandos.parametros` (JSONB, migracion 010)** para la orden `ajustar` de una luz:
+  `{brillo}` (1-100), `{temperatura_k}` (2000-6535, rango de los focos segun Home
+  Assistant) o `{color}` (`#rrggbb`); blanco y color son excluyentes. Se descarto
+  codificar el valor dentro de `tipo_comando` (`"brillo:60"`): mas fragil y sin
+  forma limpia de validarlo. La columna es generica: sirve para cualquier orden
+  futura con valores. Las ordenes sin valores guardan null.
+- Validacion en dos barreras: `src/lightParams.js` (backend) y `ajuste_a_ha`
+  (puente). El puente traduce a `light.turn_on` (`brightness_pct`,
+  `color_temp_kelvin`, `rgb_color`); como en Home Assistant, ajustar tambien enciende.
+- La pagina manda una orden por gesto (al soltar el deslizador, no por pixel) y
+  como mucho una en vuelo por foco: si se sigue moviendo, se envia solo el ultimo
+  pedido.
+- El puente reporta `modo` (`blanco`/`color`), `temperatura_k` y `color`; la pagina
+  pinta el indicador de cada foco con su color real.

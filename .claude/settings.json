@@ -76,7 +76,17 @@
       "Bash(grep -n 'v.toFixed\\(decimales\\)} ${unidad}' app.js)",
       "Bash(sed -i 's|`${v.toFixed\\(decimales\\)} ${unidad}`|`${numeroEs\\(v, decimales\\)} ${unidad}`|' app.js)",
       "Bash(PORT=4640 node dev/preview.js)",
-      "Bash(PORT=4650 node dev/preview.js)"
+      "Bash(PORT=4650 node dev/preview.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sudo bash -c \"T=\\\\$\\(cat /etc/neo-bridge-ha.token\\); for e in light.smart_lights_e53f light.smart_lights_f8af; do curl -s -H \\\\\"Authorization: Bearer \\\\$T\\\\\" http://localhost:8123/api/states/\\\\$e; echo; done\"')",
+      "Bash(python -c ' *)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'sudo bash -c \"T=\\\\$\\(cat /etc/neo-bridge-ha.token\\); for e in light.smart_lights_e53f light.smart_lights_f8af; do curl -s -H \\\\\"Authorization: Bearer \\\\$T\\\\\" http://localhost:8123/api/states/\\\\$e; echo; done\" | python3 -c \" *)",
+      "Bash(node --test src/lightParams.test.js src/historyPolicy.test.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/neo-bridge-test.py')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'python3 -m py_compile /tmp/neo-bridge-test.py && python3 /tmp/neo-bridge-test.py --selftest; rm -f /tmp/neo-bridge-test.py')",
+      "Bash(rm -rf .playwright-mcp)",
+      "Bash(sh \"C:/Users/ariel/.claude/skills/impeccable/scripts/impeccable\" detect --json backend/public/style.css backend/public/app.js)",
+      "Bash(grep -n \"historial\\\\$/\" dev/preview.js)",
+      "Bash(PORT=4670 node dev/preview.js)"
     ]
   }
 }
