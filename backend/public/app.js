@@ -320,6 +320,200 @@ async function disableNotifications(registration) {
   if (subscription) await saveNotificationState(subscription, false);
 }
 
+// Luces y disyuntor llegan por el puente de NEO (Home Assistant -> backend).
+// Cada tarjeta registra aca como reflejar un update SSE de su dispositivo.
+const liveViews = new Map();
+
+async function enviarComando(dispositivoId, tipoComando) {
+  return exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/comandos`, {
+    method: 'POST',
+    body: JSON.stringify({ tipo_comando: tipoComando }),
+    signal: AbortSignal.timeout(5000),
+  }));
+}
+
+async function leerEstado(dispositivoId) {
+  return exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivoId}/estado`, { cache: 'no-store' }));
+}
+
+// Para luces y disyuntor la confirmacion util no es "comando consumido" sino
+// que Home Assistant reporte el estado pedido.
+async function esperarEncendido(dispositivoId, encendido) {
+  const limite = Date.now() + 7000;
+  while (Date.now() < limite) {
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const { estado } = await leerEstado(dispositivoId);
+    if (estado?.encendido === encendido) return true;
+  }
+  return false;
+}
+
+function crearBotonEncendido(dispositivo, { verificarAlApagar = false, texto }) {
+  const boton = document.createElement('button');
+  boton.disabled = true;
+  boton.textContent = '...';
+  let encendido = null;
+
+  const mostrar = (valor) => {
+    encendido = typeof valor === 'boolean' ? valor : null;
+    if (boton.dataset.busy) return;
+    boton.disabled = encendido === null;
+    boton.textContent = encendido === null ? 'Sin datos' : texto(encendido);
+  };
+
+  const ejecutar = async (estadoEl) => {
+    const objetivo = !encendido;
+    boton.dataset.busy = 'true';
+    boton.disabled = true;
+    try {
+      if (!objetivo && verificarAlApagar) {
+        boton.textContent = 'Verificando...';
+        await verificarBiometria(dispositivo.id);
+      }
+      boton.textContent = 'Enviando...';
+      await enviarComando(dispositivo.id, objetivo ? 'encender' : 'apagar');
+      if (!await esperarEncendido(dispositivo.id, objetivo)) {
+        estadoEl.textContent = 'Sin confirmacion de NEO. Revisa el estado antes de reintentar.';
+      }
+    } catch (error) {
+      estadoEl.textContent = error.name === 'NotAllowedError' ? 'Verificacion cancelada.' : error.message;
+    } finally {
+      delete boton.dataset.busy;
+      const { estado } = await leerEstado(dispositivo.id).catch(() => ({}));
+      mostrar(estado?.encendido);
+    }
+  };
+  return { boton, mostrar, ejecutar };
+}
+
+function crearTarjetaLuz(dispositivo, card, nombre) {
+  card.classList.add('compacto');
+  const estadoEl = document.createElement('div');
+  estadoEl.className = 'historial';
+  const control = crearBotonEncendido(dispositivo, { texto: (on) => (on ? 'Apagar' : 'Encender') });
+  control.boton.addEventListener('click', () => control.ejecutar(estadoEl));
+
+  const fila = document.createElement('div');
+  fila.className = 'fila-compacta';
+  fila.append(nombre, control.boton);
+  card.append(fila, estadoEl);
+
+  const mostrar = (estado, at) => {
+    control.mostrar(estado?.encendido);
+    estadoEl.textContent = estado
+      ? `${estado.encendido ? 'Encendida' : 'Apagada'}${typeof estado.brillo === 'number' ? ` · brillo ${estado.brillo}%` : ''} · ${horaExactaAR(at)}`
+      : 'Sin datos de NEO todavia';
+  };
+  liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
+  leerEstado(dispositivo.id).then(({ estado, estado_actualizado_at }) => mostrar(estado, estado_actualizado_at));
+}
+
+function minutosDelDiaAR(iso) {
+  const partes = new Intl.DateTimeFormat('es-AR', {
+    timeZone: TZ_AR, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(iso));
+  const valor = (tipo) => Number(partes.find((p) => p.type === tipo).value);
+  return valor('hour') * 60 + valor('minute');
+}
+
+// Grafico de potencia del dia en SVG plano: sin libreria de graficos para una
+// sola serie. Eje X 00-24 h (hora de Argentina), eje Y de 0 al maximo del dia.
+function dibujarPotencia(contenedor, filas, fecha) {
+  const ancho = 300;
+  const alto = 110;
+  const puntos = filas
+    .filter((f) => typeof f.estado?.potencia_w === 'number' && fechaAR(new Date(f.created_at)) === fecha)
+    .map((f) => [minutosDelDiaAR(f.created_at), f.estado.potencia_w])
+    .sort((a, b) => a[0] - b[0]);
+  if (puntos.length === 0) {
+    contenedor.textContent = 'Sin registros de potencia ese dia.';
+    return;
+  }
+  const maximo = Math.max(1, ...puntos.map((p) => p[1]));
+  const x = (minuto) => (minuto / 1440) * ancho;
+  const y = (w) => alto - (w / maximo) * (alto - 12);
+  const linea = puntos.map(([m, w]) => `${x(m).toFixed(1)},${y(w).toFixed(1)}`).join(' ');
+  const marcas = [0, 6, 12, 18, 24].map((h) =>
+    `<text x="${x(h * 60)}" y="${alto + 12}" text-anchor="${h === 0 ? 'start' : h === 24 ? 'end' : 'middle'}">${String(h).padStart(2, '0')}</text>`).join('');
+  // Solo numeros calculados aca: innerHTML no recibe texto del usuario.
+  contenedor.innerHTML = `<svg viewBox="0 0 ${ancho} ${alto + 16}" role="img" aria-label="Potencia del dia, maximo ${Math.round(maximo)} W">
+    <line x1="0" y1="${alto}" x2="${ancho}" y2="${alto}" class="eje"/>
+    <text x="2" y="10" class="max">${Math.round(maximo)} W</text>
+    <polyline points="${linea}" class="serie"/>${marcas}</svg>`;
+}
+
+function crearTarjetaDisyuntor(dispositivo, card, nombre) {
+  const control = crearBotonEncendido(dispositivo, {
+    verificarAlApagar: true,
+    texto: (on) => (on ? 'Cortar' : 'Conectar'),
+  });
+  const fila = document.createElement('div');
+  fila.className = 'fila-compacta';
+  fila.append(nombre, control.boton);
+
+  const metricas = document.createElement('div');
+  metricas.className = 'metricas';
+  const campos = [
+    ['potencia_w', 'Potencia', 'W', 0],
+    ['tension_v', 'Tension', 'V', 0],
+    ['corriente_a', 'Corriente', 'A', 2],
+    ['energia_kwh', 'Energia total', 'kWh', 2],
+  ];
+  const valores = new Map();
+  for (const [clave, etiqueta] of campos) {
+    const caja = document.createElement('div');
+    caja.className = 'metrica';
+    const valor = document.createElement('div');
+    valor.className = 'metrica-valor';
+    valor.textContent = '–';
+    const rotulo = document.createElement('div');
+    rotulo.className = 'metrica-rotulo';
+    rotulo.textContent = etiqueta;
+    caja.append(valor, rotulo);
+    metricas.appendChild(caja);
+    valores.set(clave, valor);
+  }
+
+  const estadoEl = document.createElement('div');
+  estadoEl.className = 'historial';
+  const resumenEl = document.createElement('div');
+  resumenEl.className = 'historial';
+  const graficoEl = document.createElement('div');
+  graficoEl.className = 'grafico';
+
+  const cargarDia = async (fecha) => {
+    const filas = await exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivo.id}/estados?fecha=${fecha}`));
+    // Viene del mas nuevo al mas viejo e incluye el ultimo registro del dia
+    // anterior, que sirve de base para calcular la energia del dia.
+    const energias = filas.map((f) => f.estado?.energia_kwh).filter((v) => typeof v === 'number').reverse();
+    resumenEl.textContent = energias.length > 1
+      ? `Consumo del dia: ${Math.max(0, energias.at(-1) - energias[0]).toFixed(2)} kWh`
+      : 'Consumo del dia: sin datos suficientes';
+    dibujarPotencia(graficoEl, filas, fecha);
+  };
+  const fechaEl = crearSelectorFecha((fecha) => cargarDia(fecha).catch((e) => { resumenEl.textContent = e.message; }));
+  control.boton.addEventListener('click', () => control.ejecutar(estadoEl));
+  card.append(fila, metricas, estadoEl, fechaEl, resumenEl, graficoEl);
+
+  const mostrar = (estado, at) => {
+    control.mostrar(estado?.encendido);
+    for (const [clave, , unidad, decimales] of campos) {
+      const v = estado?.[clave];
+      valores.get(clave).textContent = typeof v === 'number' ? `${v.toFixed(decimales)} ${unidad}` : '–';
+    }
+    estadoEl.textContent = estado
+      ? `${estado.encendido ? 'Conectado' : 'Cortado'} · ${horaExactaAR(at)}`
+      : 'Sin datos de NEO todavia';
+  };
+  liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
+  leerEstado(dispositivo.id).then(({ estado, estado_actualizado_at }) => mostrar(estado, estado_actualizado_at));
+  cargarDia(fechaEl.value).catch((error) => { resumenEl.textContent = error.message; });
+  // El historial se guarda 1 vez por minuto: refrescar el grafico mas seguido no aporta.
+  setInterval(() => {
+    if (fechaEl.value === fechaAR()) cargarDia(fechaEl.value).catch(() => {});
+  }, 60000);
+}
+
 function crearControlAlertasServidor() {
   const manual = document.createElement('div');
   manual.className = 'modo-afuera';
@@ -720,6 +914,7 @@ function conectarEstadoEnVivo() {
 
   events.addEventListener('estado', (event) => {
     const update = JSON.parse(event.data);
+    liveViews.get(String(update.id))?.(update);
     const view = zoneViews.get(String(update.id));
     if (!view) return;
     mostrarEstadoZonas(view.zonasEl, view.actualizadoEl, view.temperaturaEl,
@@ -812,6 +1007,12 @@ async function init() {
       cargarLogZonas(dispositivo.id, logEl, fechaEl.value);
       setInterval(() => cargarEstadoZonas(dispositivo.id, zonasEl, actualizadoEl, temperaturaEl),
         ZONE_FALLBACK_REFRESH_MS);
+      continue;
+    }
+
+    if (dispositivo.tipo === 'luz' || dispositivo.tipo === 'disyuntor') {
+      (dispositivo.tipo === 'luz' ? crearTarjetaLuz : crearTarjetaDisyuntor)(dispositivo, card, nombre);
+      listEl.appendChild(card);
       continue;
     }
 

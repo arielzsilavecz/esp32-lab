@@ -51,7 +51,18 @@
       "Bash(sed -i '23s/\\\\$cargando/$enchufado/' neo-monitor.sh)",
       "Bash(bash -n neo-monitor.sh)",
       "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/neo-monitor.sh')",
-      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'set -e; sudo install -m 755 /tmp/neo-monitor.sh /usr/local/bin/; sudo sed -i \"1s/,cargando$/,enchufado/\" /var/lib/neo-monitor/temp.csv; sudo systemctl start neo-monitor.service; sudo journalctl -u neo-monitor -n 3 --no-pager | tail -2; sudo head -1 /var/lib/neo-monitor/temp.csv; sudo tail -1 /var/lib/neo-monitor/temp.csv')"
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'set -e; sudo install -m 755 /tmp/neo-monitor.sh /usr/local/bin/; sudo sed -i \"1s/,cargando$/,enchufado/\" /var/lib/neo-monitor/temp.csv; sudo systemctl start neo-monitor.service; sudo journalctl -u neo-monitor -n 3 --no-pager | tail -2; sudo head -1 /var/lib/neo-monitor/temp.csv; sudo tail -1 /var/lib/neo-monitor/temp.csv')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null *)",
+      "Bash(which tailscale *)",
+      "Read(//c/Program Files/**)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'tailscale status 2>&1 | head -6; echo; sudo tailscale netcheck 2>&1 | grep -E \"UDP|IPv4|DERP\" | head -4')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'C=~/neo/homeassistant/config/configuration.yaml; echo \"== actual:\"; cat $C; cp $C $C.bak-$\\(date +%Y%m%d-%H%M%S\\) *)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'C=~/neo/homeassistant/config/configuration.yaml; sudo cp $C $C.bak-$\\(date +%Y%m%d-%H%M%S\\) *)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cd ~/neo/homeassistant && docker compose restart homeassistant >/dev/null 2>&1; for i in $\\(seq 1 40\\); do curl -s -o /dev/null -w \"%{http_code}\" localhost:8123 | grep -q 200 && break; sleep 4; done; sleep 25; docker logs homeassistant --since 3m 2>&1 | grep -iE \"cozylife|light\\\\.|Traceback|Failed\" | sed -E \"s/\\\\x1b\\\\[[0-9;]*m//g\" | cut -c1-220 | head -14; echo \"== entidades:\"; sudo grep -o \"\\\\\"entity_id\\\\\": *\\\\\"[a-z_]*\\\\.[a-z0-9_]*\\\\\"\" ~/neo/homeassistant/config/.storage/core.entity_registry | sort -u | head')",
+      "Bash(ssh -o *)",
+      "Bash(node --test src/historyPolicy.test.js)",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'cat > /tmp/neo-bridge.py')",
+      "Bash(ssh -o BatchMode=yes ariel@192.168.100.135 'python3 --version; python3 -m py_compile /tmp/neo-bridge.py && echo COMPILA_OK; python3 /tmp/neo-bridge.py --selftest')"
     ]
   }
 }

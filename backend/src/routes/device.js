@@ -5,6 +5,7 @@ import { publishDeviceState } from '../stateEvents.js';
 import { notifyZoneChanges } from '../pushNotifications.js';
 import { claimCommandSql } from '../commandPolicy.js';
 import { alertarTemperatura } from '../serverAlerts.js';
+import { debePersistir } from '../historyPolicy.js';
 
 export const deviceRouter = Router();
 
@@ -74,11 +75,11 @@ deviceRouter.post('/estado', async (req, res) => {
                  a.estado AS estado_anterior
      ), guardado AS (
      INSERT INTO estados (dispositivo_id, estado, created_at)
-     SELECT id, estado, estado_actualizado_at FROM actualizado
+     SELECT id, estado, estado_actualizado_at FROM actualizado WHERE $3::boolean
      RETURNING dispositivo_id
      )
      SELECT * FROM actualizado`,
-    [estado, req.dispositivo.id]
+    [estado, req.dispositivo.id, debePersistir(req.dispositivo.tipo, req.dispositivo.id, estado)]
   );
   const update = result.rows[0];
   publishDeviceState(update);

@@ -28,10 +28,12 @@ function challengeValido(ceremony, dispositivoId) {
     && ceremony.expiresAt >= Date.now();
 }
 
+// Tambien el disyuntor: cortar un circuito exige la misma verificacion que abrir
+// el porton. La autorizacion en sesion conserva el nombre portonAuthorization.
 async function buscarPorton(dispositivoId) {
   const result = await pool.query(
-    'SELECT id FROM dispositivos WHERE id = $1 AND tipo = $2',
-    [dispositivoId, 'porton']
+    'SELECT id FROM dispositivos WHERE id = $1 AND tipo = ANY($2)',
+    [dispositivoId, ['porton', 'disyuntor']]
   );
   return result.rows[0];
 }

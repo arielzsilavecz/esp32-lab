@@ -614,3 +614,26 @@ button:disabled {
     min-height: 220px;
   }
 }
+
+/* Disyuntor: metricas en vivo y grafico de potencia del dia. */
+.metricas {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+@media (max-width: 480px) {
+  .metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.metrica {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+.metrica-valor { font-size: 1.1rem; font-variant-numeric: tabular-nums; color: var(--ink); }
+.metrica-rotulo { font-size: 0.75rem; color: var(--ink-muted); }
+.grafico { margin-top: 8px; color: var(--ink-muted); font-size: 0.85rem; }
+.grafico svg { width: 100%; height: auto; display: block; }
+.grafico .serie { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.grafico .eje { stroke: var(--border); }
+.grafico text { fill: var(--ink-muted); font-size: 9px; }

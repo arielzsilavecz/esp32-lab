@@ -4,6 +4,14 @@ import { requireAuth } from '../auth.js';
 import { subscribeToDeviceState } from '../stateEvents.js';
 import { createCommandSql } from '../commandPolicy.js';
 
+// Lista cerrada de comandos por tipo: tipo_comando es texto libre en la base, asi
+// que sin esto cualquier sesion podria encolar ordenes arbitrarias.
+const COMANDOS_PERMITIDOS = {
+  porton: ['activar'],
+  luz: ['encender', 'apagar', 'alternar'],
+  disyuntor: ['encender', 'apagar'],
+};
+
 export const dispositivosRouter = Router();
 
 dispositivosRouter.use(requireAuth);
@@ -59,11 +67,16 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     return res.status(404).json({ error: 'Dispositivo no encontrado' });
   }
 
-  if (dispositivo.rows[0].tipo === 'porton' && tipoComando !== 'activar') {
-    return res.status(400).json({ error: 'Comando de porton no permitido' });
+  const tipo = dispositivo.rows[0].tipo;
+  const permitidos = COMANDOS_PERMITIDOS[tipo];
+  if (permitidos && !permitidos.includes(tipoComando)) {
+    return res.status(400).json({ error: `Comando de ${tipo} no permitido` });
   }
 
-  if (dispositivo.rows[0].tipo === 'porton' && tipoComando === 'activar') {
+  // Abrir el porton o cortar el disyuntor (conectar no exige biometria).
+  const requiereBiometria = (tipo === 'porton' && tipoComando === 'activar')
+    || (tipo === 'disyuntor' && tipoComando === 'apagar');
+  if (requiereBiometria) {
     const autorizacion = req.session.portonAuthorization;
     delete req.session.portonAuthorization;
     if (!autorizacion

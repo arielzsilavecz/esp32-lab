@@ -1,0 +1,7 @@
+[Unit]
+Description=NEO: backup diario al HDD
+RequiresMountsFor=/mnt/backups
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/neo-backup.sh
