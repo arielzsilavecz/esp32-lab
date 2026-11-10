@@ -2,35 +2,71 @@
   color-scheme: dark;
   --bg: #0d0d0d;
   --panel: #1a1a19;
+  --panel-2: #222220;
   --border: rgba(255, 255, 255, 0.12);
+  --border-fuerte: rgba(255, 255, 255, 0.22);
   --ink: #ffffff;
   --ink-2: #c3c2b7;
-  --ink-muted: #898781;
+  --ink-muted: #8f8d87;
   --accent: #3987e5;
+  /* Relleno de botones: #3987e5 con texto blanco da 3.6:1; este llega a ~5:1. */
+  --accent-fill: #2a6fc9;
+  --accent-fill-hover: #245fae;
   --good: #0ca30c;
-  --critical: #d03b3b;
+  --critical: #e04848;
+  --luz: #f0b94a;
+  --radio: 14px;
+  --radio-chico: 9px;
+  --toque: 44px;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  scrollbar-color: #3a3a37 var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+::selection {
+  background: rgba(57, 135, 229, 0.38);
+  color: var(--ink);
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
   background: var(--bg);
   color: var(--ink-2);
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Login: un formulario centrado. */
+body.pantalla-login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
   padding: 24px;
+}
+
+/* Tablero: respeta notch y barra de inicio en celulares (viewport-fit=cover). */
+body.app {
+  min-height: 100dvh;
+  padding:
+    0
+    max(16px, env(safe-area-inset-right))
+    max(28px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
 }
 
 h1 {
   color: var(--ink);
   font-size: 22px;
   margin: 0 0 20px;
+  letter-spacing: -0.01em;
 }
 
 .login {
@@ -58,22 +94,50 @@ input {
   border-radius: 8px;
   padding: 12px;
   color: var(--ink);
-  font-size: 16px;
+  font: inherit;
+  font-size: 16px; /* 16px evita el zoom automatico de iOS al enfocar */
+  caret-color: var(--accent);
+}
+
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
 }
 
 button {
-  background: var(--accent);
+  min-height: var(--toque);
+  background: var(--accent-fill);
   color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 14px;
-  font-size: 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0 18px;
+  font: inherit;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms ease;
+}
+
+@media (hover: hover) {
+  button:not(:disabled):hover {
+    background: var(--accent-fill-hover);
+  }
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+button:focus-visible,
+.programacion summary:focus-visible,
+.log-hora:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
@@ -83,53 +147,89 @@ button:disabled {
   margin: 0;
 }
 
+/* ---------- Estructura del tablero ---------- */
+
 .page {
   width: 100%;
-  max-width: 480px;
+  max-width: 560px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  padding: max(14px, env(safe-area-inset-top)) 0 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
-.conexion-badge {
-  border: 1px solid currentColor;
-  border-radius: 12px;
-  padding: 3px 9px;
-  font-size: 12px;
-  color: var(--ink-muted);
+.topbar-titulo {
+  min-width: 0;
 }
-.conexion-badge.online { color: var(--good); }
-.conexion-badge.offline { color: var(--critical); }
 
 .topbar-titulo-fila {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }
 
 .topbar-titulo h1 {
   margin: 0;
+  font-size: 20px;
 }
 
+.conexion-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.conexion-badge .punto {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.conexion-badge.online { color: var(--good); border-color: rgba(12, 163, 12, 0.4); }
+.conexion-badge.offline { color: var(--critical); border-color: rgba(224, 72, 72, 0.45); }
+
 .topbar .temperatura-interna {
-  margin-top: 3px;
+  margin-top: 4px;
   color: var(--ink-muted);
   font-size: 12px;
 }
 
 .topbar button {
+  min-height: 40px;
   background: transparent;
-  color: var(--ink-muted);
+  color: var(--ink-2);
   border: 1px solid var(--border);
-  padding: 8px 14px;
+  padding: 0 14px;
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 500;
+}
+
+@media (hover: hover) {
+  .topbar button:not(:disabled):hover {
+    background: var(--panel);
+    border-color: var(--border-fuerte);
+  }
 }
 
 .topbar-actions {
@@ -142,33 +242,218 @@ button:disabled {
   display: none;
 }
 
+/* Celular: una columna, ordenada por frecuencia de uso. Las columnas no
+   existen como caja (display: contents) para que el orden mezcle ambas. */
+.tablero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.columna {
+  display: contents;
+}
+
+.dispositivo[data-tipo="porton"] { order: 1; }
+.dispositivo[data-tipo="luz"] { order: 2; }
+.dispositivo[data-tipo="alarma"] { order: 3; }
+.dispositivo[data-tipo="disyuntor"] { order: 4; }
+
+/* Desktop: la alarma con su plano a la izquierda; acciones y datos a la derecha. */
+@media (min-width: 960px) {
+  .page {
+    max-width: 1160px;
+    gap: 22px;
+  }
+
+  .tablero {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: 22px;
+    align-items: start;
+  }
+
+  .columna {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    min-width: 0;
+  }
+
+  .dispositivo[data-tipo="alarma"] {
+    padding: 22px 24px;
+  }
+}
+
+/* ---------- Tarjetas ---------- */
+
 .dispositivo {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 18px;
+  border-radius: var(--radio);
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.dispositivo .nombre {
-  color: var(--ink);
-  font-weight: 600;
-  font-size: 16px;
-}
-
-.dispositivo .tipo {
-  color: var(--ink-muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  min-width: 0;
 }
 
 .dispositivo .historial {
   font-size: 12px;
   color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
+
+.grupo-titulo,
+.nombre {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.nombre-editable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+}
+
+.nombre-editable [hidden] {
+  display: none;
+}
+
+.boton-icono {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  border-radius: 8px;
+}
+
+.boton-icono svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (hover: hover) {
+  .boton-icono { opacity: 0.55; }
+  .nombre-editable:hover .boton-icono,
+  .boton-icono:focus-visible { opacity: 1; }
+  .boton-icono:not(:disabled):hover {
+    background: var(--panel-2);
+    color: var(--ink);
+  }
+}
+
+/* Objetivos tactiles de 44px sin agrandar el dibujo: area extra invisible o alto minimo. */
+@media (pointer: coarse) {
+  .boton-icono { width: var(--toque); min-height: var(--toque); margin: -6px 0; }
+  .log-fecha { min-height: var(--toque); }
+  .log-hora { padding-block: 13px; }
+}
+
+.toggle::before {
+  content: '';
+  position: absolute;
+  inset: -9px -6px;
+}
+
+.nombre-campo {
+  width: min(100%, 280px);
+  padding: 6px 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.fila-compacta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fila-compacta button {
+  flex: 0 0 auto;
+}
+
+/* Botones de encendido: apagado ofrece "Encender" (relleno, accion principal);
+   encendido ofrece "Apagar" (contorno, accion secundaria). */
+.boton-estado {
+  flex: 0 0 auto;
+  min-width: 104px;
+}
+
+.boton-estado[data-on="true"] {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--border-fuerte);
+}
+
+@media (hover: hover) {
+  .boton-estado[data-on="true"]:not(:disabled):hover {
+    background: var(--panel-2);
+  }
+}
+
+.boton-critico[data-on="true"] {
+  color: var(--critical);
+  border-color: rgba(224, 72, 72, 0.5);
+}
+
+@media (hover: hover) {
+  .boton-critico[data-on="true"]:not(:disabled):hover {
+    background: rgba(224, 72, 72, 0.1);
+  }
+}
+
+/* Luces: una fila por foco dentro de la misma tarjeta. */
+.fila-luz {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.fila-luz + .fila-luz {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.fila-luz-texto {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.indicador-luz {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #494946;
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+}
+
+.fila-luz[data-on="true"] .indicador-luz {
+  background: var(--luz);
+  box-shadow: 0 0 0 4px rgba(240, 185, 74, 0.16);
+}
+
+
+/* ---------- Notificaciones (alarma y NEO) ---------- */
 
 .notificaciones-config {
   display: flex;
@@ -181,9 +466,10 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 11px 12px;
+  min-height: 56px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radio-chico);
   background: rgba(255, 255, 255, 0.025);
 }
 
@@ -194,9 +480,9 @@ button:disabled {
 }
 
 .modo-afuera-estado {
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--ink-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .toggle {
@@ -232,6 +518,7 @@ button:disabled {
   height: 20px;
   border-radius: 50%;
   background: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   transition: transform 150ms ease;
 }
 
@@ -255,17 +542,21 @@ button:disabled {
 
 .programacion {
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radio-chico);
   background: rgba(255, 255, 255, 0.018);
 }
 
 .programacion summary {
-  padding: 11px 12px;
+  min-height: var(--toque);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
   color: var(--ink-2);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   user-select: none;
+  border-radius: var(--radio-chico);
 }
 
 .programacion-cuerpo {
@@ -278,7 +569,7 @@ button:disabled {
 .programacion-etiqueta,
 .programacion-estado {
   color: var(--ink-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .programacion-dias {
@@ -304,6 +595,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
   aspect-ratio: 1;
+  max-height: var(--toque);
   border: 1px solid var(--border);
   border-radius: 7px;
   color: var(--ink-muted);
@@ -349,58 +641,40 @@ button:disabled {
 
 .programacion button {
   align-self: flex-start;
-  padding: 9px 13px;
-  font-size: 13px;
-}
-
-/* El porton no se usa a diario: entra en una fila, no en una tarjeta alta. */
-.dispositivo.compacto {
-  padding: 12px 16px;
-  gap: 6px;
-}
-
-.fila-compacta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.fila-compacta button {
-  flex: 0 0 auto;
-  padding: 8px 18px;
   font-size: 14px;
 }
+
+/* ---------- Log de zonas ---------- */
 
 /* Cada hora ocupa una fila colapsable. El scroll evita que una lista extensa
    empuje el resto de los controles fuera de la pantalla. */
 .log-zonas {
   --log-alto-linea: 21px; /* 15px de line-height + 6px de padding */
-  margin-top: 6px;
-  max-height: calc(var(--log-alto-linea) * 10);
+  max-height: calc(var(--log-alto-linea) * 12);
   overflow-y: auto;
   font-size: 12px;
   color: var(--ink-muted);
 }
 
 .log-fecha {
-  margin-top: 8px;
+  align-self: flex-start;
+  min-height: 36px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-2);
-  background: transparent;
+  background: var(--panel-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 3px 6px;
-  color-scheme: light dark;
+  border-radius: 8px;
+  padding: 4px 10px;
+  color-scheme: dark;
 }
 
 .log-hora {
   cursor: pointer;
-  padding: 6px 2px;
-  font-size: 11px;
+  padding: 8px 2px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   border-bottom: 1px solid var(--border);
 }
 
@@ -433,8 +707,24 @@ button:disabled {
   color: var(--ink-2);
 }
 
+/* ---------- Plano de la alarma ---------- */
+
 .zonas {
   width: 100%;
+  container-type: inline-size;
+}
+
+/* En planos angostos "Ventana" no entra en su recuadro a 11px. */
+@container (max-width: 380px) {
+  .sensor-zona,
+  .abertura {
+    font-size: 9px;
+  }
+
+  .sensor-zona span,
+  .abertura span {
+    padding: 0 2px;
+  }
 }
 
 .plano-alarma {
@@ -442,7 +732,7 @@ button:disabled {
   width: 100%;
   aspect-ratio: 420 / 330;
   margin: 8px 0 4px;
-  min-height: 250px;
+  min-height: 220px;
 }
 
 .perimetro {
@@ -592,8 +882,7 @@ button:disabled {
 
 .zona-activa {
   color: var(--critical);
-  background-color: rgba(208, 59, 59, 0.13);
-  filter: drop-shadow(0 0 5px rgba(208, 59, 59, 0.45));
+  background-color: rgba(224, 72, 72, 0.24);
 }
 
 .zona-desconocida {
@@ -601,39 +890,584 @@ button:disabled {
   background-color: var(--panel);
 }
 
-@media (max-width: 420px) {
-  body {
-    padding: 14px;
-  }
+/* ---------- Disyuntor: metricas en vivo y grafico del dia ---------- */
 
-  .dispositivo {
-    padding: 14px;
-  }
-
-  .plano-alarma {
-    min-height: 220px;
-  }
+/* 2x2 en tarjetas angostas, una fila de 4 si la tarjeta es ancha: nunca 3 + 1. */
+.dispositivo[data-tipo="disyuntor"] {
+  container-type: inline-size;
 }
 
-/* Disyuntor: metricas en vivo y grafico de potencia del dia. */
 .metricas {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 12px;
 }
-@media (max-width: 480px) {
-  .metricas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+@container (min-width: 540px) {
+  .metricas {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
-.metrica {
+
+.grafico {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.grafico svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.grafico .serie {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.grafico .area {
+  fill: rgba(57, 135, 229, 0.14);
+  stroke: none;
+}
+
+.grafico .eje,
+.grafico .guia {
+  stroke: var(--border);
+  vector-effect: non-scaling-stroke;
+}
+
+.grafico .guia {
+  stroke-dasharray: 2 4;
+}
+
+.grafico text {
+  fill: var(--ink-muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- NEO: arriba de todo, a lo ancho en desktop ---------- */
+
+.dispositivo[data-tipo="servidor"] {
+  order: 0;
+  container-type: inline-size;
+  gap: 16px;
+}
+
+@media (min-width: 960px) {
+  .dispositivo[data-tipo="servidor"] {
+    grid-column: 1 / -1;
+    padding: 20px 24px;
+  }
+}
+
+/* Desplegable cerrado por defecto: el resumen ocupa una linea. */
+.neo-desplegable > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-height: var(--toque);
+  margin: -6px -8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.neo-desplegable > summary::-webkit-details-marker {
+  display: none;
+}
+
+.neo-desplegable > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .neo-desplegable > summary:hover {
+    background: var(--panel-2);
+  }
+}
+
+.neo-resumen-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.neo-resumen {
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chevron {
+  width: 9px;
+  height: 9px;
+  margin: 0 6px 4px auto;
+  border-right: 2px solid var(--ink-muted);
+  border-bottom: 2px solid var(--ink-muted);
+  transform: rotate(45deg);
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.neo-desplegable[open] .chevron {
+  margin-bottom: -4px;
+  transform: rotate(-135deg);
+}
+
+.neo-contenido {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.neo-cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.neo-identidad {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Filtro de periodo: control segmentado, afecta a todos los graficos de abajo. */
+.segmentado {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.segmentado button {
+  min-height: 34px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 13px;
+  border-radius: 7px;
+}
+
+.segmentado button[aria-pressed="true"] {
+  background: #33332f;
+  color: var(--ink);
+}
+
+@media (hover: hover) {
+  .segmentado button[aria-pressed="false"]:not(:disabled):hover {
+    background: transparent;
+    color: var(--ink-2);
+  }
+}
+
+@media (pointer: coarse) {
+  .segmentado button { min-height: 40px; }
+}
+
+/* Estado actual */
+.neo-valores {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* 4 fichas: 2x2 en angosto, una fila en ancho (nunca 3 + 1). */
+@container (min-width: 720px) {
+  .neo-valores { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* Ficha de dato unica (NEO y disyuntor): titulo arriba, dato abajo, centrados. */
+.valor-neo {
+  min-width: 0;
+  container-type: inline-size;
+  padding: 14px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  background: var(--panel-2);
+  border-radius: var(--radio-chico);
+}
+
+.valor-neo-numero {
+  color: var(--ink);
+  /* 26px si hay lugar; en fichas angostas achica para que "424,08 kWh" entre. */
+  font-size: clamp(17px, calc(15cqi + 3px), 26px);
+  line-height: 1.15;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.valor-neo-rotulo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+/* Carga: dos mitades (una por nucleo) que suman el 100 % de la capacidad. */
+.carga-barra {
+  align-self: stretch;
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px; /* el hueco de superficie separa las dos mitades */
+}
+
+.carga-mitad {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.carga-mhz {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.carga-pista {
+  height: 8px;
+  background: rgba(57, 135, 229, 0.18);
+  overflow: hidden;
+}
+
+.carga-mitad:first-child .carga-pista { border-radius: 999px 0 0 999px; }
+.carga-mitad:last-child .carga-pista { border-radius: 0 999px 999px 0; }
+
+.carga-relleno {
+  height: 100%;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms ease;
+}
+
+.carga-relleno[data-nivel="atencion"] { background: var(--luz); }
+.carga-relleno[data-nivel="critico"] { background: var(--critical); }
+
+/* Estado de temperatura: icono + texto; el color acompaña, no es el unico canal. */
+.estado-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.estado-chip[hidden] {
+  display: none;
+}
+
+.estado-chip svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.estado-chip.atencion { background: rgba(240, 185, 74, 0.2); }
+.estado-chip.atencion svg { color: var(--luz); }
+.estado-chip.critico { background: rgba(224, 72, 72, 0.24); }
+.estado-chip.critico svg { color: var(--critical); }
+
+/* Graficos: uno por medida, sin cajas propias; la separacion la da el espacio. */
+.neo-graficos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px 24px;
+  transition: opacity 150ms ease;
+}
+
+.neo-graficos.cargando {
+  opacity: 0.55;
+}
+
+@container (min-width: 620px) {
+  .neo-graficos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container (min-width: 960px) {
+  .neo-graficos { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.grafico-neo {
+  margin: 0;
+  min-width: 0;
+}
+
+.grafico-neo figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.leyenda {
+  display: flex;
+  gap: 12px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.leyenda-item i,
+.tip-fila i {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  vertical-align: middle;
+}
+
+.leyenda-item i {
+  margin-right: 6px;
+}
+
+.grafico-marco {
+  position: relative;
+  border-radius: 8px;
+  touch-action: pan-y;
+}
+
+.grafico-marco:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.grafico-marco svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.grafico-marco text {
+  fill: var(--ink-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.grafico-marco .grilla {
+  stroke: rgba(255, 255, 255, 0.08);
+  vector-effect: non-scaling-stroke;
+}
+
+/* Umbrales punteados: se leen como limite, no como grilla. */
+.grafico-marco .umbral {
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.grafico-marco .umbral-texto {
+  fill: var(--ink-2);
+}
+
+.grafico-marco .linea-neo {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.grafico-marco .area-neo {
+  opacity: 0.1;
+}
+
+.grafico-marco .punto-final {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.grafico-marco .cruz {
+  stroke: rgba(255, 255, 255, 0.35);
+  vector-effect: non-scaling-stroke;
+}
+
+.grafico-marco .vacio {
+  font-size: 11px;
+}
+
+.grafico-tip {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  min-width: 128px;
+  padding: 6px 10px;
+  background: #262624;
+  border: 1px solid var(--border-fuerte);
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  color: var(--ink-2);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.grafico-tip[hidden] {
+  display: none;
+}
+
+.tip-hora {
+  margin-bottom: 3px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-fila {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.tip-fila strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Discos + avisos */
+.neo-pie {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 14px 24px;
+}
+
+@container (min-width: 760px) {
+  .neo-pie { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.neo-discos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.medidor-fila {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.medidor-fila strong {
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.medidor-pista {
+  margin-top: 6px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(57, 135, 229, 0.18);
+  overflow: hidden;
+}
+
+.medidor-relleno {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms ease;
+}
+
+.medidor-relleno[data-nivel="atencion"] { background: var(--luz); }
+.medidor-relleno[data-nivel="critico"] { background: var(--critical); }
+
+/* Tabla equivalente a los graficos */
+.tabla-datos summary {
+  min-height: var(--toque);
+  display: flex;
+  align-items: center;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.tabla-datos summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tabla-scroll {
+  max-height: 300px;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px;
 }
-.metrica-valor { font-size: 1.1rem; font-variant-numeric: tabular-nums; color: var(--ink); }
-.metrica-rotulo { font-size: 0.75rem; color: var(--ink-muted); }
-.grafico { margin-top: 8px; color: var(--ink-muted); font-size: 0.85rem; }
-.grafico svg { width: 100%; height: auto; display: block; }
-.grafico .serie { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-.grafico .eje { stroke: var(--border); }
-.grafico text { fill: var(--ink-muted); font-size: 9px; }
+
+.tabla-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabla-scroll th {
+  position: sticky;
+  top: 0;
+  padding: 7px 10px;
+  background: var(--panel-2);
+  color: var(--ink-muted);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tabla-scroll td {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.tabla-scroll th:first-child,
+.tabla-scroll td:first-child {
+  text-align: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0ms !important;
+  }
+}

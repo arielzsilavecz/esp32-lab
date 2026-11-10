@@ -23,7 +23,7 @@ authRouter.post('/login', async (req, res) => {
 
   const valido = await bcrypt.compare(password, usuario ? usuario.password_hash : HASH_DUMMY);
   if (!usuario || !valido) {
-    return res.status(401).json({ error: 'Credenciales invalidas' });
+    return res.status(401).json({ error: 'Credenciales inválidas' });
   }
 
   req.session.userId = usuario.id;

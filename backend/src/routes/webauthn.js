@@ -41,7 +41,7 @@ async function buscarPorton(dispositivoId) {
 webauthnRouter.post('/registro/opciones', async (req, res) => {
   const { dispositivoId } = req.body ?? {};
   if (!dispositivoId || !await buscarPorton(dispositivoId)) {
-    return res.status(404).json({ error: 'Porton no encontrado' });
+    return res.status(404).json({ error: 'Portón no encontrado' });
   }
 
   const [usuarioResult, credencialesResult] = await Promise.all([
@@ -87,7 +87,7 @@ webauthnRouter.post('/registro/verificar', async (req, res) => {
   delete req.session.webAuthnRegistration;
 
   if (!response || !challengeValido(ceremony, dispositivoId)) {
-    return res.status(400).json({ error: 'Registro vencido o invalido' });
+    return res.status(400).json({ error: 'Registro vencido o inválido' });
   }
 
   try {
@@ -141,7 +141,7 @@ webauthnRouter.post('/registro/verificar', async (req, res) => {
 webauthnRouter.post('/autenticacion/opciones', async (req, res) => {
   const { dispositivoId } = req.body ?? {};
   if (!dispositivoId || !await buscarPorton(dispositivoId)) {
-    return res.status(404).json({ error: 'Porton no encontrado' });
+    return res.status(404).json({ error: 'Portón no encontrado' });
   }
 
   const credenciales = await pool.query(
@@ -176,7 +176,7 @@ webauthnRouter.post('/autenticacion/verificar', async (req, res) => {
   delete req.session.webAuthnAuthentication;
 
   if (!response || !challengeValido(ceremony, dispositivoId)) {
-    return res.status(400).json({ error: 'Verificacion vencida o invalida' });
+    return res.status(400).json({ error: 'Verificación vencida o inválida' });
   }
 
   const credencialResult = await pool.query(

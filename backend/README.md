@@ -17,6 +17,19 @@ cada decision de esta carpeta.
 - Un solo proceso Express sirve la API y el frontend estatico (`public/`) — no hay
   Vercel ni build step de frontend (HTML/CSS/JS plano).
 
+## Vista previa de la interfaz (sin base de datos)
+
+Para ver cambios de `public/` sin deployar ni levantar Postgres:
+
+```
+npm run preview    # http://localhost:4600
+```
+
+`dev/preview.js` sirve los archivos reales de `public/` y simula la API con datos
+falsos (portón, alarma, NEO, dos focos y el disyuntor con métricas que se mueven).
+Recargá el navegador para ver cada edición de CSS/JS. No hay login, no toca
+producción ni dispositivos reales, y no simula la verificación biométrica.
+
 ## Setup local
 
 La interfaz tambien es una PWA instalable. Cada navegador puede activar

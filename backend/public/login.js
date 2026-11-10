@@ -21,7 +21,7 @@ form.addEventListener('submit', async (event) => {
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      errorEl.textContent = body.error || 'No se pudo iniciar sesion';
+      errorEl.textContent = body.error || 'No se pudo iniciar sesión';
       errorEl.hidden = false;
       return;
     }

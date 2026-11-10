@@ -96,7 +96,7 @@ function serializarCredencial(credencial) {
 
 async function exigirRespuestaExitosa(response) {
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'La operacion fallo');
+  if (!response.ok) throw new Error(body.error || 'La operación falló');
   return body;
 }
 
@@ -108,7 +108,7 @@ async function registrarBiometria(dispositivoId) {
   const credential = await navigator.credentials.create({
     publicKey: opcionesRegistroParaNavegador(options),
   });
-  if (!credential) throw new Error('No se creo la credencial');
+  if (!credential) throw new Error('No se creó la credencial');
 
   await exigirRespuestaExitosa(await api('/api/webauthn/registro/verificar', {
     method: 'POST',
@@ -118,7 +118,7 @@ async function registrarBiometria(dispositivoId) {
 
 async function verificarBiometria(dispositivoId) {
   if (!window.PublicKeyCredential || !navigator.credentials) {
-    throw new Error('Este navegador no admite verificacion biometrica');
+    throw new Error('Este navegador no admite verificación biométrica');
   }
 
   const optionsResponse = await api('/api/webauthn/autenticacion/opciones', {
@@ -134,7 +134,7 @@ async function verificarBiometria(dispositivoId) {
   const credential = await navigator.credentials.get({
     publicKey: opcionesAutenticacionParaNavegador(options),
   });
-  if (!credential) throw new Error('No se verifico la identidad');
+  if (!credential) throw new Error('No se verificó la identidad');
 
   await exigirRespuestaExitosa(await api('/api/webauthn/autenticacion/verificar', {
     method: 'POST',
@@ -168,12 +168,12 @@ async function activar(dispositivoId, boton, historialEl) {
         break;
       }
     }
-    boton.textContent = confirmado ? 'ESP32 confirmo' : 'Sin confirmacion';
+    boton.textContent = confirmado ? 'ESP32 confirmó' : 'Sin confirmación';
     await cargarHistorial(dispositivoId, historialEl);
-    if (!confirmado) historialEl.textContent = 'Sin confirmacion del ESP32. La orden no se reenvia; verifica el porton antes de intentar otra vez.';
+    if (!confirmado) historialEl.textContent = 'Sin confirmación del ESP32. La orden no se reenvía; verificá el portón antes de intentar otra vez.';
   } catch (error) {
     boton.textContent = error.name === 'NotAllowedError' ? 'Cancelado' : 'Error, reintentar';
-    historialEl.textContent = error.name === 'NotAllowedError' ? 'Verificacion cancelada.' : error.message;
+    historialEl.textContent = error.name === 'NotAllowedError' ? 'Verificación cancelada.' : error.message;
   } finally {
     setTimeout(() => {
       delete boton.dataset.busy;
@@ -188,8 +188,8 @@ async function cargarHistorial(dispositivoId, historialEl) {
   const historial = await response.json();
   const ultimo = historial[0];
   historialEl.textContent = ultimo
-    ? `Ultima orden: ${ultimo.activado_por}, ${formatoRelativo(ultimo.created_at)} · ${ultimo.consumido_at ? 'ESP32 confirmo' : Date.parse(ultimo.expires_at) <= Date.now() ? 'vencida / sin confirmacion' : 'pendiente (max. 5s)'}`
-    : 'Sin activaciones todavia';
+    ? `Última orden: ${ultimo.activado_por}, ${formatoRelativo(ultimo.created_at)} · ${ultimo.consumido_at ? 'ESP32 confirmó' : Date.parse(ultimo.expires_at) <= Date.now() ? 'vencida / sin confirmación' : 'pendiente (máx. 5 s)'}`
+    : 'Sin activaciones todavía';
 }
 
 // SSE entrega los cambios inmediatamente. Esta consulta lenta solo recupera
@@ -245,7 +245,7 @@ function mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estad
   zonasEl.appendChild(crearPlanoZonas(zonas));
 
   actualizadoEl.textContent = estadoActualizadoAt
-    ? `Ultimo cambio reportado ${formatoRelativo(estadoActualizadoAt)}`
+    ? `Último cambio reportado ${formatoRelativo(estadoActualizadoAt)}`
     : 'Esperando al dispositivo...';
 
   // temperaturaC es la lectura interna del die del ESP32 (no calibrada, no es
@@ -256,13 +256,6 @@ function mostrarEstadoZonas(zonasEl, actualizadoEl, temperaturaEl, estado, estad
   if (!temperaturaEl.hidden) {
     temperaturaEl.textContent = `Temp. interna ESP32: ${estado.temperaturaC.toFixed(1)}°C`;
   }
-}
-
-async function cargarLecturaServidor(dispositivoId, el) {
-  const response = await api(`/api/dispositivos/${dispositivoId}/estado`);
-  const { estado, estado_actualizado_at } = await response.json();
-  if (!estado) { el.textContent = 'Sin lecturas todavia.'; return; }
-  el.textContent = `CPU ${estado.cpu_c}°C · GPU ${estado.gpu_c}°C · carga ${estado.load1} · RAM ${estado.ram_pct}% · bateria ${estado.bateria_pct}% (${estado.enchufado === false ? 'a bateria' : 'enchufado'}) · ${horaExactaAR(estado_actualizado_at)}`;
 }
 
 async function cargarEstadoZonas(dispositivoId, zonasEl, actualizadoEl, temperaturaEl) {
@@ -279,7 +272,7 @@ function base64UrlToUint8Array(value) {
 
 async function responseJson(response) {
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'No se pudo completar la operacion');
+  if (!response.ok) throw new Error(body.error || 'No se pudo completar la operación');
   return body;
 }
 
@@ -294,7 +287,7 @@ async function saveNotificationState(subscription, enabled) {
 async function getOrCreatePushSubscription(registration) {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
-    throw new Error('Las notificaciones estan bloqueadas en Chrome');
+    throw new Error('Las notificaciones están bloqueadas en Chrome');
   }
 
   let subscription = await registration.pushManager.getSubscription();
@@ -350,19 +343,26 @@ async function esperarEncendido(dispositivoId, encendido) {
 
 function crearBotonEncendido(dispositivo, { verificarAlApagar = false, texto }) {
   const boton = document.createElement('button');
+  boton.className = verificarAlApagar ? 'boton-estado boton-critico' : 'boton-estado';
   boton.disabled = true;
   boton.textContent = '...';
   let encendido = null;
 
+  // data-on: encendido -> el boton ofrece apagar (contorno); apagado -> encender (relleno).
   const mostrar = (valor) => {
     encendido = typeof valor === 'boolean' ? valor : null;
+    boton.dataset.on = String(encendido === true);
     if (boton.dataset.busy) return;
     boton.disabled = encendido === null;
     boton.textContent = encendido === null ? 'Sin datos' : texto(encendido);
   };
 
-  const ejecutar = async (estadoEl) => {
+  // alConfirmar repinta la tarjeta entera (indicador, metricas) sin depender del
+  // evento SSE, que puede perderse en una reconexion. Si fallo, solo se
+  // actualiza el boton para no tapar el mensaje de error.
+  const ejecutar = async (estadoEl, alConfirmar) => {
     const objetivo = !encendido;
+    let confirmado = false;
     boton.dataset.busy = 'true';
     boton.disabled = true;
     try {
@@ -372,37 +372,46 @@ function crearBotonEncendido(dispositivo, { verificarAlApagar = false, texto }) 
       }
       boton.textContent = 'Enviando...';
       await enviarComando(dispositivo.id, objetivo ? 'encender' : 'apagar');
-      if (!await esperarEncendido(dispositivo.id, objetivo)) {
-        estadoEl.textContent = 'Sin confirmacion de NEO. Revisa el estado antes de reintentar.';
+      confirmado = await esperarEncendido(dispositivo.id, objetivo);
+      if (!confirmado) {
+        estadoEl.textContent = 'Sin confirmación de NEO. Revisá el estado antes de reintentar.';
       }
     } catch (error) {
-      estadoEl.textContent = error.name === 'NotAllowedError' ? 'Verificacion cancelada.' : error.message;
+      estadoEl.textContent = error.name === 'NotAllowedError' ? 'Verificación cancelada.' : error.message;
     } finally {
       delete boton.dataset.busy;
-      const { estado } = await leerEstado(dispositivo.id).catch(() => ({}));
-      mostrar(estado?.encendido);
+      const { estado, estado_actualizado_at } = await leerEstado(dispositivo.id).catch(() => ({}));
+      if (confirmado && alConfirmar) alConfirmar(estado, estado_actualizado_at);
+      else mostrar(estado?.encendido);
     }
   };
   return { boton, mostrar, ejecutar };
 }
 
-function crearTarjetaLuz(dispositivo, card, nombre) {
-  card.classList.add('compacto');
+function crearTarjetaLuz(dispositivo, grupo, nombre) {
   const estadoEl = document.createElement('div');
   estadoEl.className = 'historial';
   const control = crearBotonEncendido(dispositivo, { texto: (on) => (on ? 'Apagar' : 'Encender') });
-  control.boton.addEventListener('click', () => control.ejecutar(estadoEl));
+  control.boton.addEventListener('click', () => control.ejecutar(estadoEl, (e, at) => mostrar(e, at)));
+
+  const indicador = document.createElement('span');
+  indicador.className = 'indicador-luz';
+  indicador.setAttribute('aria-hidden', 'true');
+  const texto = document.createElement('div');
+  texto.className = 'fila-luz-texto';
+  texto.append(nombre, estadoEl);
 
   const fila = document.createElement('div');
-  fila.className = 'fila-compacta';
-  fila.append(nombre, control.boton);
-  card.append(fila, estadoEl);
+  fila.className = 'fila-luz';
+  fila.append(indicador, texto, control.boton);
+  grupo.append(fila);
 
   const mostrar = (estado, at) => {
     control.mostrar(estado?.encendido);
+    fila.dataset.on = String(estado?.encendido === true);
     estadoEl.textContent = estado
       ? `${estado.encendido ? 'Encendida' : 'Apagada'}${typeof estado.brillo === 'number' ? ` · brillo ${estado.brillo}%` : ''} · ${horaExactaAR(at)}`
-      : 'Sin datos de NEO todavia';
+      : 'Sin datos de NEO todavía';
   };
   liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
   leerEstado(dispositivo.id).then(({ estado, estado_actualizado_at }) => mostrar(estado, estado_actualizado_at));
@@ -426,7 +435,7 @@ function dibujarPotencia(contenedor, filas, fecha) {
     .map((f) => [minutosDelDiaAR(f.created_at), f.estado.potencia_w])
     .sort((a, b) => a[0] - b[0]);
   if (puntos.length === 0) {
-    contenedor.textContent = 'Sin registros de potencia ese dia.';
+    contenedor.textContent = 'Sin registros de potencia ese día.';
     return;
   }
   const maximo = Math.max(1, ...puntos.map((p) => p[1]));
@@ -436,10 +445,16 @@ function dibujarPotencia(contenedor, filas, fecha) {
   const marcas = [0, 6, 12, 18, 24].map((h) =>
     `<text x="${x(h * 60)}" y="${alto + 12}" text-anchor="${h === 0 ? 'start' : h === 24 ? 'end' : 'middle'}">${String(h).padStart(2, '0')}</text>`).join('');
   // Solo numeros calculados aca: innerHTML no recibe texto del usuario.
-  contenedor.innerHTML = `<svg viewBox="0 0 ${ancho} ${alto + 16}" role="img" aria-label="Potencia del dia, maximo ${Math.round(maximo)} W">
+  const primero = x(puntos[0][0]).toFixed(1);
+  const ultimo = x(puntos.at(-1)[0]).toFixed(1);
+  contenedor.innerHTML = `<svg viewBox="0 0 ${ancho} ${alto + 16}" role="img" aria-label="Potencia del día, máximo ${Math.round(maximo)} W">
+    <line x1="0" y1="${y(maximo)}" x2="${ancho}" y2="${y(maximo)}" class="guia"/>
+    <line x1="0" y1="${y(maximo / 2)}" x2="${ancho}" y2="${y(maximo / 2)}" class="guia"/>
     <line x1="0" y1="${alto}" x2="${ancho}" y2="${alto}" class="eje"/>
-    <text x="2" y="10" class="max">${Math.round(maximo)} W</text>
-    <polyline points="${linea}" class="serie"/>${marcas}</svg>`;
+    <polygon points="${primero},${alto} ${linea} ${ultimo},${alto}" class="area"/>
+    <polyline points="${linea}" class="serie"/>
+    <text x="2" y="${y(maximo) - 3}">${Math.round(maximo)} W</text>
+    <text x="2" y="${y(maximo / 2) - 3}">${Math.round(maximo / 2)} W</text>${marcas}</svg>`;
 }
 
 function crearTarjetaDisyuntor(dispositivo, card, nombre) {
@@ -455,23 +470,16 @@ function crearTarjetaDisyuntor(dispositivo, card, nombre) {
   metricas.className = 'metricas';
   const campos = [
     ['potencia_w', 'Potencia', 'W', 0],
-    ['tension_v', 'Tension', 'V', 0],
+    ['tension_v', 'Tensión', 'V', 0],
     ['corriente_a', 'Corriente', 'A', 2],
-    ['energia_kwh', 'Energia total', 'kWh', 2],
+    ['energia_kwh', 'Energía total', 'kWh', 2],
   ];
   const valores = new Map();
+  // Misma ficha que NEO (crearValorNeo en servidor.js): titulo arriba, dato abajo, centrados.
   for (const [clave, etiqueta] of campos) {
-    const caja = document.createElement('div');
-    caja.className = 'metrica';
-    const valor = document.createElement('div');
-    valor.className = 'metrica-valor';
-    valor.textContent = '–';
-    const rotulo = document.createElement('div');
-    rotulo.className = 'metrica-rotulo';
-    rotulo.textContent = etiqueta;
-    caja.append(valor, rotulo);
-    metricas.appendChild(caja);
-    valores.set(clave, valor);
+    const ficha = crearValorNeo(etiqueta);
+    metricas.appendChild(ficha.el);
+    valores.set(clave, ficha.valor);
   }
 
   const estadoEl = document.createElement('div');
@@ -487,23 +495,23 @@ function crearTarjetaDisyuntor(dispositivo, card, nombre) {
     // anterior, que sirve de base para calcular la energia del dia.
     const energias = filas.map((f) => f.estado?.energia_kwh).filter((v) => typeof v === 'number').reverse();
     resumenEl.textContent = energias.length > 1
-      ? `Consumo del dia: ${Math.max(0, energias.at(-1) - energias[0]).toFixed(2)} kWh`
-      : 'Consumo del dia: sin datos suficientes';
+      ? `Consumo del día: ${Math.max(0, energias.at(-1) - energias[0]).toFixed(2)} kWh`
+      : 'Consumo del día: sin datos suficientes';
     dibujarPotencia(graficoEl, filas, fecha);
   };
   const fechaEl = crearSelectorFecha((fecha) => cargarDia(fecha).catch((e) => { resumenEl.textContent = e.message; }));
-  control.boton.addEventListener('click', () => control.ejecutar(estadoEl));
+  control.boton.addEventListener('click', () => control.ejecutar(estadoEl, (e, at) => mostrar(e, at)));
   card.append(fila, metricas, estadoEl, fechaEl, resumenEl, graficoEl);
 
   const mostrar = (estado, at) => {
     control.mostrar(estado?.encendido);
     for (const [clave, , unidad, decimales] of campos) {
       const v = estado?.[clave];
-      valores.get(clave).textContent = typeof v === 'number' ? `${v.toFixed(decimales)} ${unidad}` : '–';
+      valores.get(clave).textContent = typeof v === 'number' ? `${numeroEs(v, decimales)} ${unidad}` : '–';
     }
     estadoEl.textContent = estado
       ? `${estado.encendido ? 'Conectado' : 'Cortado'} · ${horaExactaAR(at)}`
-      : 'Sin datos de NEO todavia';
+      : 'Sin datos de NEO todavía';
   };
   liveViews.set(String(dispositivo.id), (u) => mostrar(u.estado, u.estado_actualizado_at));
   leerEstado(dispositivo.id).then(({ estado, estado_actualizado_at }) => mostrar(estado, estado_actualizado_at));
@@ -528,7 +536,7 @@ function crearControlAlertasServidor() {
 
   const toggleLabel = document.createElement('label');
   toggleLabel.className = 'toggle';
-  toggleLabel.setAttribute('aria-label', 'Recibir alertas de temperatura y caida de NEO');
+  toggleLabel.setAttribute('aria-label', 'Recibir alertas de temperatura y caída de NEO');
   const toggle = document.createElement('input');
   toggle.type = 'checkbox';
   toggle.disabled = true;
@@ -626,7 +634,7 @@ function crearControlNotificaciones() {
   scheduleBody.className = 'programacion-cuerpo';
   const daysTitle = document.createElement('div');
   daysTitle.className = 'programacion-etiqueta';
-  daysTitle.textContent = 'Dias';
+  daysTitle.textContent = 'Días';
   const daysContainer = document.createElement('div');
   daysContainer.className = 'programacion-dias';
   const dayInputs = new Map();
@@ -746,7 +754,7 @@ function crearControlNotificaciones() {
       const enabled = scheduleEnabled.checked;
 
       if (enabled && days.length === 0) {
-        scheduleStatus.textContent = 'Elegí al menos un dia';
+        scheduleStatus.textContent = 'Elegí al menos un día';
         return;
       }
       if (enabled && startInput.value === endInput.value) {
@@ -839,7 +847,7 @@ function mostrarLogZonas(logEl, snapshots) {
   logEl.innerHTML = '';
 
   if (eventos.length === 0) {
-    logEl.textContent = 'Sin activaciones este dia';
+    logEl.textContent = 'Sin activaciones este día';
     return;
   }
 
@@ -900,7 +908,7 @@ function crearSelectorFecha(alCambiar) {
   const input = document.createElement('input');
   input.type = 'date';
   input.className = 'log-fecha';
-  input.setAttribute('aria-label', 'Dia del log');
+  input.setAttribute('aria-label', 'Día del log');
   input.value = input.max = fechaAR();
   input.min = fechaAR(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
   input.addEventListener('change', () => {
@@ -937,6 +945,7 @@ function conectarEstadoEnVivo() {
 // detecta una desconexion mucho mas rapido que el keep-warm de la alarma
 // (45s, umbral de 90s) -- si el porton esta vivo, el equipo esta vivo.
 const conexionBadgeEl = document.getElementById('conexion-badge');
+const conexionTextoEl = conexionBadgeEl.querySelector('.conexion-texto');
 let portonId = null;
 let portonBoton = null;
 let connectionRequestBusy = false;
@@ -951,17 +960,17 @@ async function actualizarConexion() {
     const estado = estados.find((item) => String(item.id) === portonId);
     const online = estado?.conectado === true;
     conexionBadgeEl.className = `conexion-badge ${online ? 'online' : 'offline'}`;
-    conexionBadgeEl.textContent = online ? '● ESP32 conectado' : '● ESP32 sin conexion';
+    conexionTextoEl.textContent = online ? 'ESP32 conectado' : 'ESP32 sin conexión';
     conexionBadgeEl.title = estado?.last_seen_at
-      ? `Ultimo contacto: ${new Date(estado.last_seen_at).toLocaleString('es-AR')}`
-      : 'Todavia no se recibio una señal de conexion';
+      ? `Último contacto: ${new Date(estado.last_seen_at).toLocaleString('es-AR')}`
+      : 'Todavía no se recibió una señal de conexión';
     if (portonBoton) {
       portonBoton.dataset.online = String(online);
       portonBoton.disabled = !online || portonBoton.dataset.busy === 'true';
     }
   } catch {
     conexionBadgeEl.className = 'conexion-badge offline';
-    conexionBadgeEl.textContent = '● Sin conexion con el servidor';
+    conexionTextoEl.textContent = 'Sin conexión con el servidor';
     if (portonBoton) {
       portonBoton.dataset.online = 'false';
       portonBoton.disabled = true;
@@ -971,22 +980,133 @@ async function actualizarConexion() {
   }
 }
 
+const ICONO_EDITAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>';
+
+// Nombre del dispositivo con edicion en el lugar: lapiz -> campo de texto.
+// Enter o salir del campo guarda; Escape cancela. Sin modal: es un dato corto.
+function crearNombreEditable(dispositivo) {
+  const contenedor = document.createElement('div');
+  contenedor.className = 'nombre-editable';
+
+  const titulo = document.createElement('h2');
+  titulo.className = 'nombre';
+  titulo.textContent = dispositivo.nombre;
+
+  const editar = document.createElement('button');
+  editar.type = 'button';
+  editar.className = 'boton-icono';
+  editar.innerHTML = ICONO_EDITAR;
+  editar.setAttribute('aria-label', `Cambiar nombre de ${dispositivo.nombre}`);
+
+  const campo = document.createElement('input');
+  campo.type = 'text';
+  campo.className = 'nombre-campo';
+  campo.maxLength = 40;
+  campo.hidden = true;
+  campo.setAttribute('aria-label', 'Nombre del dispositivo');
+
+  let guardando = false;
+  const cerrar = () => {
+    campo.hidden = true;
+    titulo.hidden = false;
+    editar.hidden = false;
+  };
+  const guardar = async () => {
+    if (guardando || campo.hidden) return;
+    const nuevo = campo.value.trim().replace(/\s+/g, ' ');
+    if (!nuevo || nuevo === dispositivo.nombre) { cerrar(); return; }
+    guardando = true;
+    campo.disabled = true;
+    try {
+      const guardado = await exigirRespuestaExitosa(await api(`/api/dispositivos/${dispositivo.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ nombre: nuevo }),
+      }));
+      dispositivo.nombre = guardado.nombre;
+      titulo.textContent = guardado.nombre;
+      editar.setAttribute('aria-label', `Cambiar nombre de ${guardado.nombre}`);
+      cerrar();
+    } catch (error) {
+      campo.setCustomValidity(error.message);
+      campo.reportValidity();
+    } finally {
+      guardando = false;
+      campo.disabled = false;
+    }
+  };
+
+  editar.addEventListener('click', () => {
+    campo.value = dispositivo.nombre;
+    campo.setCustomValidity('');
+    titulo.hidden = true;
+    editar.hidden = true;
+    campo.hidden = false;
+    campo.focus();
+    campo.select();
+  });
+  campo.addEventListener('input', () => campo.setCustomValidity(''));
+  campo.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') guardar();
+    if (event.key === 'Escape') cerrar();
+  });
+  campo.addEventListener('blur', guardar);
+
+  contenedor.append(titulo, campo, editar);
+  return contenedor;
+}
+
+// Orden en celular: lo que se toca a diario arriba. En desktop la alarma ocupa
+// la columna principal y el resto va a la lateral (ver .columna en style.css).
+const ORDEN_TIPOS = { porton: 1, luz: 2, alarma: 3, disyuntor: 4, servidor: 5 };
+
 async function init() {
   const response = await api('/api/dispositivos');
   const dispositivos = await response.json();
 
   if (dispositivos.length === 0) {
-    listEl.textContent = 'No hay dispositivos dados de alta todavia.';
+    listEl.textContent = 'No hay dispositivos dados de alta todavía.';
     return;
   }
 
-  for (const dispositivo of dispositivos) {
-    const card = document.createElement('div');
-    card.className = 'dispositivo';
+  const columnaPrincipal = document.createElement('div');
+  columnaPrincipal.className = 'columna columna-principal';
+  const columnaLateral = document.createElement('div');
+  columnaLateral.className = 'columna columna-lateral';
+  listEl.append(columnaPrincipal, columnaLateral);
 
-    const nombre = document.createElement('div');
-    nombre.className = 'nombre';
-    nombre.textContent = dispositivo.nombre;
+  let grupoLuces = null;
+  const ordenados = [...dispositivos].sort((a, b) =>
+    (ORDEN_TIPOS[a.tipo] ?? 9) - (ORDEN_TIPOS[b.tipo] ?? 9) || a.id - b.id);
+
+  for (const dispositivo of ordenados) {
+    const card = document.createElement('section');
+    card.className = 'dispositivo';
+    card.dataset.tipo = dispositivo.tipo;
+    const listEl = dispositivo.tipo === 'alarma' ? columnaPrincipal : columnaLateral;
+
+    // Solo los focos se renombran (se mueven de lugar); el resto es fijo.
+    let nombre;
+    if (dispositivo.tipo === 'luz') {
+      nombre = crearNombreEditable(dispositivo);
+    } else {
+      nombre = document.createElement('h2');
+      nombre.className = 'nombre';
+      nombre.textContent = dispositivo.nombre;
+    }
+
+    // Las luces comparten una tarjeta: una fila por foco, no una tarjeta cada una.
+    if (dispositivo.tipo === 'luz') {
+      if (!grupoLuces) {
+        grupoLuces = card;
+        const titulo = document.createElement('h2');
+        titulo.className = 'grupo-titulo';
+        titulo.textContent = 'Luces';
+        grupoLuces.append(titulo);
+        listEl.appendChild(grupoLuces);
+      }
+      crearTarjetaLuz(dispositivo, grupoLuces, nombre);
+      continue;
+    }
 
     if (dispositivo.tipo === 'alarma') {
       const zonasEl = document.createElement('div');
@@ -1010,22 +1130,18 @@ async function init() {
       continue;
     }
 
-    if (dispositivo.tipo === 'luz' || dispositivo.tipo === 'disyuntor') {
-      (dispositivo.tipo === 'luz' ? crearTarjetaLuz : crearTarjetaDisyuntor)(dispositivo, card, nombre);
+    if (dispositivo.tipo === 'disyuntor') {
+      crearTarjetaDisyuntor(dispositivo, card, nombre);
       listEl.appendChild(card);
       continue;
     }
 
     // Servidor (NEO): solo lectura, sin boton. Sin esta rama caia en la de
     // accion y se dibujaba como un porton con "Activar" que no hace nada.
+    // NEO va arriba de todo y a lo ancho: fuera de las dos columnas (ver servidor.js).
     if (dispositivo.tipo === 'servidor') {
-      const lecturaEl = document.createElement('div');
-      lecturaEl.className = 'historial';
-      card.classList.add('compacto');
-      card.append(nombre, lecturaEl, crearControlAlertasServidor());
-      listEl.appendChild(card);
-      cargarLecturaServidor(dispositivo.id, lecturaEl);
-      setInterval(() => cargarLecturaServidor(dispositivo.id, lecturaEl), 30000);
+      crearSeccionServidor(dispositivo, card, nombre);
+      columnaPrincipal.parentElement.prepend(card);
       continue;
     }
 

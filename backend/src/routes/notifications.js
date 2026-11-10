@@ -48,7 +48,7 @@ notificationsRouter.put('/suscripcion', async (req, res) => {
     && typeof enabled === 'boolean';
 
   if (!valid) {
-    return res.status(400).json({ error: 'Suscripcion invalida' });
+    return res.status(400).json({ error: 'Suscripción inválida' });
   }
 
   await pool.query(
@@ -82,7 +82,7 @@ notificationsRouter.put('/programacion', async (req, res) => {
   if (!validSubscription || typeof enabled !== 'boolean' || !validDays
       || !validTime(start) || !validTime(end)
       || (enabled && (normalizedDays.length === 0 || start === end))) {
-    return res.status(400).json({ error: 'Programacion invalida' });
+    return res.status(400).json({ error: 'Programación inválida' });
   }
 
   await pool.query(
@@ -112,7 +112,7 @@ notificationsRouter.put('/alertas-servidor', async (req, res) => {
     && typeof subscription.keys?.p256dh === 'string'
     && typeof subscription.keys?.auth === 'string'
     && typeof enabled === 'boolean';
-  if (!valid) return res.status(400).json({ error: 'Suscripcion invalida' });
+  if (!valid) return res.status(400).json({ error: 'Suscripción inválida' });
 
   await pool.query(
     `INSERT INTO push_subscriptions (endpoint, usuario_id, subscription, alertas_servidor, updated_at)

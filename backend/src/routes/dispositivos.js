@@ -21,6 +21,23 @@ dispositivosRouter.get('/', async (_req, res) => {
   res.json(result.rows);
 });
 
+// Renombrar desde la pagina: solo focos, porque se mueven de lugar. Portón,
+// alarma, disyuntor y NEO son fijos. Solo el nombre: tipo y token no se tocan.
+dispositivosRouter.patch('/:id', async (req, res) => {
+  const nombre = typeof req.body?.nombre === 'string' ? req.body.nombre.trim().replace(/\s+/g, ' ') : '';
+  if (nombre.length < 1 || nombre.length > 40) {
+    return res.status(400).json({ error: 'El nombre debe tener entre 1 y 40 caracteres' });
+  }
+  const result = await pool.query(
+    `UPDATE dispositivos SET nombre = $1 WHERE id = $2 AND tipo = 'luz' RETURNING id, nombre`,
+    [nombre, req.params.id]
+  );
+  if (result.rowCount === 0) {
+    return res.status(404).json({ error: 'Foco no encontrado' });
+  }
+  res.json(result.rows[0]);
+});
+
 dispositivosRouter.get('/conexion', async (_req, res) => {
   res.set('Cache-Control', 'no-store');
   const result = await pool.query(`
@@ -82,7 +99,7 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     if (!autorizacion
         || autorizacion.dispositivoId !== String(id)
         || autorizacion.expiresAt < Date.now()) {
-      return res.status(403).json({ error: 'Se requiere verificacion biometrica' });
+      return res.status(403).json({ error: 'Se requiere verificación biométrica' });
     }
   }
 
@@ -91,7 +108,7 @@ dispositivosRouter.post('/:id/comandos', async (req, res) => {
     [id, tipoComando, req.session.userId]
   );
   if (result.rowCount === 0) {
-    return res.status(409).json({ error: 'ESP32 sin conexion reciente. La orden no se guardo.' });
+    return res.status(409).json({ error: `${tipo === 'porton' ? 'ESP32' : 'Dispositivo'} sin conexión reciente. La orden no se guardó.` });
   }
   res.status(201).json(result.rows[0]);
 });
@@ -123,6 +140,22 @@ dispositivosRouter.get('/:id/estados', async (req, res) => {
   const fecha = req.query.fecha ?? null;
   if (fecha !== null && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
     return res.status(400).json({ error: 'fecha debe ser YYYY-MM-DD' });
+  }
+
+  // ?horas=1|24: ventana movil hasta ahora (graficos del servidor). Un dia
+  // calendario cortaria "la ultima hora" a medianoche.
+  if (req.query.horas !== undefined) {
+    const horas = Number(req.query.horas);
+    if (horas !== 1 && horas !== 24) {
+      return res.status(400).json({ error: 'horas debe ser 1 o 24' });
+    }
+    const ventana = await pool.query(
+      `SELECT estado, created_at FROM estados
+       WHERE dispositivo_id = $1 AND created_at > now() - make_interval(hours => $2)
+       ORDER BY created_at DESC`,
+      [id, horas]
+    );
+    return res.json(ventana.rows);
   }
 
   const result = await pool.query(

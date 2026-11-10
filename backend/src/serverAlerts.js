@@ -29,10 +29,10 @@ async function revisarSinReporte() {
     const sinReporte = Date.now() - new Date(d.estado_actualizado_at).getTime() > SIN_REPORTE_MS;
     if (sinReporte && !caidos.has(d.id)) {
       caidos.add(d.id);
-      await notifyServerAlert(d.nombre, 'Sin reportar hace mas de 3 minutos', 'servidor-caido');
+      await notifyServerAlert(d.nombre, 'Sin reportar hace más de 3 minutos', 'servidor-caido');
     } else if (!sinReporte && caidos.has(d.id)) {
       caidos.delete(d.id);
-      await notifyServerAlert(d.nombre, 'Volvio a reportar', 'servidor-caido');
+      await notifyServerAlert(d.nombre, 'Volvió a reportar', 'servidor-caido');
     }
   }
 }
