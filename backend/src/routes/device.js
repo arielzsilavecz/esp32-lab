@@ -5,7 +5,7 @@ import { requireDeviceToken } from '../deviceAuth.js';
 import { hayPaginasAbiertas, publishDeviceState } from '../stateEvents.js';
 import { esperarAviso } from '../esperaComandos.js';
 import { notifyCameraAlert, notifyZoneChanges } from '../pushNotifications.js';
-import { guardarCaptura, tomarReforzar, vigilanciaActiva } from '../vigilancia.js';
+import { guardarCaptura, registrarEvento, tomarReforzar, vigilanciaActiva } from '../vigilancia.js';
 import { claimCommandSql } from '../commandPolicy.js';
 import { alertarTemperatura } from '../serverAlerts.js';
 import { debePersistir } from '../historyPolicy.js';
@@ -39,9 +39,19 @@ deviceRouter.post('/imagen', express.raw({ type: 'image/jpeg', limit: '400kb' })
   res.status(204).end();
 });
 
+// Linea del registro de vigilancia que no lleva foto (activada, desactivada,
+// analisis sin novedad). Las capturas se registran solas al subirse.
+deviceRouter.post('/evento', async (req, res) => {
+  const texto = typeof req.body?.texto === 'string' ? req.body.texto.trim() : '';
+  if (!texto) return res.status(400).json({ error: 'Falta "texto"' });
+  await registrarEvento(req.dispositivo.id, texto);
+  res.status(204).end();
+});
+
 // Captura de vigilancia (ADR-0015). X-Motivo: "zona" (pedida al activarse
 // Z1/Z2: la usa el aviso de zona) o "deteccion" (NEO vio una persona o un
-// vehiculo; X-Descripcion, codificada como URI, es el texto del aviso).
+// vehiculo). X-Descripcion, codificada como URI, es el texto del aviso y del
+// registro.
 deviceRouter.post('/captura', express.raw({ type: 'image/jpeg', limit: '400kb' }), async (req, res) => {
   if (req.dispositivo.tipo !== 'camara') {
     return res.status(403).json({ error: 'Solo las cámaras suben capturas' });
@@ -53,13 +63,15 @@ deviceRouter.post('/captura', express.raw({ type: 'image/jpeg', limit: '400kb' }
   if (motivo !== 'zona' && motivo !== 'deteccion') {
     return res.status(400).json({ error: 'X-Motivo debe ser zona o deteccion' });
   }
-  let descripcion = 'Movimiento detectado';
+  let descripcion = motivo === 'zona' ? 'Foto de zona' : 'Movimiento detectado';
   try {
     descripcion = decodeURIComponent(req.get('X-Descripcion') || '').slice(0, 200) || descripcion;
   } catch { /* texto mal codificado: queda el generico */ }
 
   const id = guardarCaptura(req.body, motivo);
   res.status(204).end();
+  void registrarEvento(req.dispositivo.id, motivo === 'deteccion' ? `Aviso: ${descripcion}` : descripcion, id)
+    .catch((error) => console.error('No se pudo registrar la captura:', error.message));
   if (motivo === 'deteccion') {
     void notifyCameraAlert(req.dispositivo, descripcion, id)
       .catch((error) => console.error('Fallo el aviso de la camara:', error.message));
@@ -90,7 +102,8 @@ deviceRouter.get('/comando-pendiente', async (req, res) => {
   // Camaras: si vigilar (alguien en "Estoy afuera") y si se activo Z1/Z2 (ADR-0015).
   if (req.dispositivo.tipo === 'camara') {
     res.set('X-Vigilancia', (await vigilanciaActiva()) ? '1' : '0');
-    if (tomarReforzar(req.dispositivo.id)) res.set('X-Reforzar', '1');
+    const reforzar = tomarReforzar(req.dispositivo.id);
+    if (reforzar) res.set('X-Reforzar', reforzar);
   }
   if (result.rowCount === 0) {
     return res.status(204).end();

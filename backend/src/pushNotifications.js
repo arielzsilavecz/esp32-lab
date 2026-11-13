@@ -113,9 +113,10 @@ export async function notifyZoneChanges(device, previousState, currentState) {
   // Se pide antes de todo: NEO saca la foto del instante (y pasa a vigilancia
   // reforzada) aunque este aviso no salga por el cooldown. Si no hay nadie en
   // "Estoy afuera", NEO no esta vigilando y lo ignora.
-  const frente = changes.some((c) => c.active && ZONAS_FRENTE.includes(c.zone));
+  // La hora es la de llegada del reporte: NEO busca la foto de 2-3 s antes.
+  const frente = changes.find((c) => c.active && ZONAS_FRENTE.includes(c.zone));
   // .catch: si no hay a quien avisar no se espera, y un rechazo suelto tumbaria el proceso.
-  const captura = frente ? pedirCaptura(ESPERA_CAPTURA_MS).catch(() => null) : null;
+  const captura = frente ? pedirCaptura(ESPERA_CAPTURA_MS, frente.zone, Date.now()).catch(() => null) : null;
   await configureVapid();
 
   // Reclamar primero las suscripciones elegibles evita dos avisos simultaneos

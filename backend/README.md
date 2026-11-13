@@ -37,7 +37,9 @@ La interfaz tambien es una PWA instalable. Cada navegador puede activar
 con la pagina cerrada. Tambien puede programar dias y horas de aviso automatico;
 el horario se interpreta en `America/Argentina/Buenos_Aires` y admite periodos
 que cruzan medianoche. El limite compartido es un aviso cada 5 minutos por
-navegador.
+navegador. Con alguien en **Estoy afuera**, NEO vigila la camara de la entrada:
+los avisos de Z1/Z2 llegan con la foto de ese instante y avisa si ve una
+persona o un vehiculo (ADR-0015).
 
 ```
 npm install

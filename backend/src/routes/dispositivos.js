@@ -6,6 +6,7 @@ import { avisarOrden, despertarTodos, dispositivoEsperando } from '../esperaComa
 import { createCommandSql } from '../commandPolicy.js';
 import { validarAjusteLuz } from '../lightParams.js';
 import { borrarCuadro, leerCuadro, validarMovimiento } from '../camaraCuadros.js';
+import { leerCaptura } from '../vigilancia.js';
 
 // Lista cerrada de comandos por tipo: tipo_comando es texto libre en la base, asi
 // que sin esto cualquier sesion podria encolar ordenes arbitrarias.
@@ -209,6 +210,34 @@ dispositivosRouter.get('/:id/consumo', async (req, res) => {
     [req.params.id, `${mes}-01`]
   );
   res.json(result.rows);
+});
+
+// Registro de vigilancia de una camara, un dia en hora de Argentina (?fecha,
+// hoy si no viene), mas nuevo primero. `foto` solo mientras la captura siga en
+// memoria (6 h): despues la linea queda sin foto.
+dispositivosRouter.get('/:id/eventos', async (req, res) => {
+  const fecha = req.query.fecha ?? null;
+  if (fecha !== null && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return res.status(400).json({ error: 'fecha debe ser YYYY-MM-DD' });
+  }
+  res.set('Cache-Control', 'no-store');
+  const result = await pool.query(
+    `WITH dia AS (
+       SELECT d::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires' AS desde,
+              (d + 1)::timestamp AT TIME ZONE 'America/Argentina/Buenos_Aires' AS hasta
+       FROM (SELECT COALESCE($2::date,
+         (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) AS d) f
+     )
+     SELECT texto, captura, created_at FROM eventos, dia
+     WHERE dispositivo_id = $1 AND created_at >= dia.desde AND created_at < dia.hasta
+     ORDER BY created_at DESC`,
+    [req.params.id, fecha]
+  );
+  res.json(result.rows.map(({ texto, captura, created_at }) => ({
+    texto,
+    created_at,
+    foto: captura && leerCaptura(captura) ? `/capturas/${captura}.jpg` : null,
+  })));
 });
 
 dispositivosRouter.get('/:id/estados', async (req, res) => {

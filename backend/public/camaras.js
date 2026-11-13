@@ -23,6 +23,55 @@ function formatoRestante(ms) {
   return `${Math.floor(segundos / 60)}:${String(segundos % 60).padStart(2, '0')}`;
 }
 
+// Registro de la vigilancia (ADR-0015): lo que hizo NEO con "Estoy afuera".
+// Plegado por defecto; se pide al abrirlo, al cambiar de dia y al volver a la
+// pagina con el registro abierto. Usa crearSelectorFecha y mostrarLogPorHora
+// de app.js.
+function crearRegistroCamara(dispositivo) {
+  const registro = document.createElement('details');
+  registro.className = 'programacion camara-registro';
+  const titulo = document.createElement('summary');
+  titulo.textContent = 'Registro de vigilancia';
+  const cuerpo = document.createElement('div');
+  cuerpo.className = 'programacion-cuerpo';
+  const logEl = document.createElement('div');
+  logEl.className = 'log-zonas';
+
+  async function cargar() {
+    try {
+      const response = await api(`/api/dispositivos/${dispositivo.id}/eventos?fecha=${fechaEl.value}`, { cache: 'no-store' });
+      const eventos = (await exigirRespuestaExitosa(response)).map((e) => ({ ...e, createdAt: e.created_at }));
+      mostrarLogPorHora(logEl, eventos, {
+        vacio: 'Sin registros este día',
+        cuenta: (n) => (n === 1 ? '1 registro' : `${n} registros`),
+        linea: (evento, linea) => {
+          if (evento.texto.startsWith('Aviso')) linea.classList.add('log-activa');
+          if (!evento.foto) return evento.texto;
+          const foto = document.createElement('a');
+          foto.href = evento.foto;
+          foto.target = '_blank';
+          foto.rel = 'noopener';
+          foto.textContent = 'Ver foto';
+          const partes = document.createDocumentFragment();
+          partes.append(`${evento.texto} · `, foto);
+          return partes;
+        },
+      });
+    } catch (error) {
+      logEl.textContent = error.message;
+    }
+  }
+
+  const fechaEl = crearSelectorFecha(cargar);
+  cuerpo.append(fechaEl, logEl);
+  registro.append(titulo, cuerpo);
+  registro.addEventListener('toggle', () => { if (registro.open) cargar(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && registro.open) cargar();
+  });
+  return registro;
+}
+
 function crearTarjetaCamara(dispositivo, card, nombre) {
   let activa = false;
   let hasta = 0;
@@ -112,7 +161,7 @@ function crearTarjetaCamara(dispositivo, card, nombre) {
   controles.append(acciones);
 
   panel.append(marco, estado, controles);
-  card.append(fila, aviso, panel);
+  card.append(fila, aviso, panel, crearRegistroCamara(dispositivo));
 
   function plegar(mensaje) {
     panel.hidden = true;

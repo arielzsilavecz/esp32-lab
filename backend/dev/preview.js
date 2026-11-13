@@ -158,6 +158,18 @@ http.createServer(async (req, res) => {
     }
     return json(res, 200, filas);
   }
+  // Registro de vigilancia de la camara: lineas de ejemplo de hoy.
+  if (p === '/api/dispositivos/7/eventos') {
+    const hace = (min) => new Date(Date.now() - min * 60000).toISOString();
+    return json(res, 200, [
+      { texto: 'Vigilancia desactivada', created_at: hace(5), foto: null },
+      { texto: 'Aviso: Persona en la entrada: una mujer con mochila camina hacia el portón', created_at: hace(48), foto: '/icons/app-icon-notification-256.png' },
+      { texto: 'Foto de Z2, 3 s antes', created_at: hace(50), foto: '/icons/app-icon-notification-256.png' },
+      { texto: 'Análisis: un vehículo pasó por la calle, no se detuvo', created_at: hace(95), foto: null },
+      { texto: 'Análisis: sin personas ni vehículos', created_at: hace(130), foto: null },
+      { texto: 'Vigilancia activada', created_at: hace(140), foto: null },
+    ]);
+  }
   if ((m = p.match(/^\/api\/dispositivos\/(\d+)\/historial$/))) {
     const t = Date.now() - 3 * 3600000;
     return json(res, 200, [{ id: 9, tipo_comando: 'activar', activado_por: 'Ariel', created_at: new Date(t).toISOString(), consumido_at: new Date(t + 900).toISOString(), expires_at: new Date(t + 5000).toISOString() }]);

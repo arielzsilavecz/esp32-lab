@@ -1049,14 +1049,27 @@ function derivarEventos(snapshots) {
 }
 
 function mostrarLogZonas(logEl, snapshots) {
-  const eventos = derivarEventos(snapshots);
+  mostrarLogPorHora(logEl, derivarEventos(snapshots), {
+    vacio: 'Sin activaciones este día',
+    cuenta: (n) => (n === 1 ? '1 cambio' : `${n} cambios`),
+    linea: (evento, linea) => {
+      linea.classList.add(evento.activa ? 'log-activa' : 'log-reposo');
+      return `Zona ${evento.zona} ${evento.activa ? 'activada' : 'en reposo'}`;
+    },
+  });
+}
+
+// Registro agrupado por hora, cada hora plegable (zonas y camara). eventos:
+// [{ createdAt, ... }] mas nuevo primero. linea(evento, elementoLinea) devuelve
+// el texto o un nodo, y puede agregar clases a la linea.
+function mostrarLogPorHora(logEl, eventos, { vacio, cuenta, linea }) {
   const horasAbiertas = new Set(
     [...logEl.querySelectorAll('.log-grupo-hora[open]')].map((grupo) => grupo.dataset.hora)
   );
   logEl.innerHTML = '';
 
   if (eventos.length === 0) {
-    logEl.textContent = 'Sin activaciones este día';
+    logEl.textContent = vacio;
     return;
   }
 
@@ -1079,10 +1092,10 @@ function mostrarLogZonas(logEl, snapshots) {
     const encabezado = document.createElement('summary');
     encabezado.className = 'log-hora';
     // La fecha ya esta elegida arriba: la fila muestra solo la hora y cuanto paso.
-    const cuenta = document.createElement('span');
-    cuenta.className = 'log-cuenta';
-    cuenta.textContent = eventosHora.length === 1 ? '1 cambio' : `${eventosHora.length} cambios`;
-    encabezado.append(etiqueta.split(' · ')[1], cuenta);
+    const cuentaEl = document.createElement('span');
+    cuentaEl.className = 'log-cuenta';
+    cuentaEl.textContent = cuenta(eventosHora.length);
+    encabezado.append(etiqueta.split(' · ')[1], cuentaEl);
 
     const lineas = document.createElement('div');
 
@@ -1091,13 +1104,12 @@ function mostrarLogZonas(logEl, snapshots) {
       hora.className = 'log-ts';
       hora.textContent = horaExactaAR(evento.createdAt);
 
+      const lineaEl = document.createElement('div');
+      lineaEl.className = 'log-linea';
       const texto = document.createElement('span');
-      texto.textContent = `Zona ${evento.zona} ${evento.activa ? 'activada' : 'en reposo'}`;
-
-      const linea = document.createElement('div');
-      linea.className = `log-linea ${evento.activa ? 'log-activa' : 'log-reposo'}`;
-      linea.append(hora, texto);
-      lineas.appendChild(linea);
+      texto.append(linea(evento, lineaEl));
+      lineaEl.append(hora, texto);
+      lineas.appendChild(lineaEl);
     }
 
     grupo.append(encabezado, lineas);

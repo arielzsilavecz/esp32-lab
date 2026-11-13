@@ -2,14 +2,16 @@
 "Estoy afuera" (cabecera X-Vigilancia de la espera de ordenes).
 
 - Un ffmpeg sobre la calidad secundaria saca 2 cuadros/s de 64x36 en gris (para
-  detectar movimiento) y deja la ultima foto en color en /dev/shm (1/s).
+  detectar movimiento) y 2 fotos/s en color, de las que se guardan en memoria
+  los ultimos ~12 s.
 - Movimiento = parte de la imagen distinta de un fondo que se adapta lento
   (nubes, sombras) sostenida unos segundos. Un cambio casi total de golpe es la
   camara pasando a modo noche: rearma el fondo, no dispara.
 - Con movimiento, el modelo local mira la foto de ese instante; si hay persona
   o vehiculo se sube la foto y Railway avisa.
-- X-Reforzar (Z1/Z2 activada): sube ya la foto del instante (va en el aviso de
-  zona), analiza sin esperar movimiento y por 10 min baja los umbrales.
+- X-Reforzar "<zona>@<ms>" (Z1/Z2 activada): sube la foto de unos segundos
+  antes de la activacion (va en el aviso de zona), la analiza sin esperar
+  movimiento y por 10 min baja los umbrales.
 
 Solo biblioteca estandar. Los umbrales se ajustan en la config de la camara
 ("vigilancia": {...}) sin tocar codigo: dependen del lugar.
@@ -25,6 +27,7 @@ import urllib.request
 
 ANCHO, ALTO = 64, 36
 CUADROS_POR_S = 2
+SEGUNDOS_GUARDADOS = 12
 
 AJUSTES = {
     "umbral_pixel": 25,         # diferencia de gris (0-255) para que un pixel cuente como cambiado
@@ -33,14 +36,33 @@ AJUSTES = {
     "reforzado": {"area": 0.03, "segundos": 1, "ventana_s": 2},
     "cambio_global": 0.6,       # mas que esto de golpe: cambio de luz, no movimiento
     "reforzado_s": 600,
-    "pausa_analisis_s": {"normal": 180, "reforzado": 60},
+    "pausa_analisis_s": {"normal": 180, "reforzado": 60},  # desde que termina el anterior
     "pausa_aviso_s": 300,
     "temperatura_max_c": 80,
+    # Foto del aviso de zona: cuantos segundos antes de la activacion, por zona.
+    "antes_s": {"1": 2, "2": 3},
+    # Cuanto llega atrasada una imagen a NEO respecto de la realidad (stream de
+    # la camara menos lo que tarda el aviso de zona en llegar). Se calibra.
+    "retraso_camara_s": 1.0,
 }
 
 
 def log(*partes):
     print("vigilancia:", *partes, flush=True)
+
+
+def extraer_jpegs(buffer):
+    """Separa los JPEG completos de un flujo MJPEG (de FF D8 a FF D9).
+    Devuelve (cuadros, resto). FF D9 no aparece dentro de los datos de un JPEG
+    de ffmpeg: los FF del contenido se codifican como FF 00."""
+    cuadros = []
+    while True:
+        inicio = buffer.find(b"\xff\xd8")
+        fin = buffer.find(b"\xff\xd9", inicio + 2) if inicio >= 0 else -1
+        if inicio < 0 or fin < 0:
+            return cuadros, buffer[inicio:] if inicio >= 0 else b""
+        cuadros.append(buffer[inicio:fin + 2])
+        buffer = buffer[fin + 2:]
 
 
 class Detector:
@@ -82,8 +104,31 @@ class Sostenido:
         self.ultimos.clear()
 
 
-def es_jpeg(datos):
-    return len(datos) > 4 and datos[:2] == b"\xff\xd8" and datos[-2:] == b"\xff\xd9"
+def foto_mas_cercana(fotos, momento, tolerancia_s=1.5):
+    """De [(llegada, jpeg)], la que llego mas cerca de `momento`, o None."""
+    if not fotos:
+        return None
+    llegada, jpeg = min(fotos, key=lambda f: abs(f[0] - momento))
+    return jpeg if abs(llegada - momento) <= tolerancia_s else None
+
+
+def momento_foto_zona(ajustes, zona, activada_en):
+    """Hora de llegada a NEO de la foto que muestra la escena `antes_s` segundos
+    antes de la activacion de la zona."""
+    antes = ajustes["antes_s"].get(str(zona), 2)
+    return activada_en - antes + ajustes["retraso_camara_s"]
+
+
+def leer_reforzar(valor):
+    """'1@1731300000123' -> (1, 1731300000.123); None si falta o es invalido.
+    '1' (backend anterior, sin zona ni hora): como Z1 activada ahora."""
+    if valor == "1":
+        return 1, time.time()
+    try:
+        zona, ms = valor.split("@")
+        return int(zona), int(ms) / 1000
+    except (AttributeError, ValueError):
+        return None
 
 
 def temperatura_c():
@@ -94,13 +139,22 @@ def temperatura_c():
         return 0.0
 
 
+# Primero decide, despues describe. Enumerarle la escena fija para que no la
+# describa no sirve: el modelo de 2B la copia. Se le pide describir solo a las
+# personas y vehiculos. "vehiculo" es uno detenido frente a la entrada: los que
+# pasan por la calle no interesan (y como una foto no muestra si se mueve, se
+# confirma con una segunda foto; ver _analizar_siempre).
 ESQUEMA = {"type": "object", "additionalProperties": False,
-           "required": ["descripcion", "persona", "vehiculo"],
-           "properties": {"descripcion": {"type": "string", "maxLength": 140},
-                          "persona": {"type": "boolean"}, "vehiculo": {"type": "boolean"}}}
+           "required": ["persona", "vehiculo", "descripcion"],
+           "properties": {"persona": {"type": "boolean"}, "vehiculo": {"type": "boolean"},
+                          "descripcion": {"type": "string", "maxLength": 300}}}
 
-PREGUNTA = ("Imagen de la cámara de la entrada de una casa. Describí en una frase corta en español "
-            "lo que se ve (descripcion) y decí si hay alguna persona o algún vehículo.")
+PREGUNTA = (
+    "Imagen de la cámara de seguridad de la entrada de una casa. Indicá si hay alguna persona y si "
+    "hay algún vehículo detenido o estacionado justo frente a la entrada (un vehículo que circula "
+    "por la calle no cuenta). En descripcion describí solo a esas personas o vehículos en pocas "
+    "palabras: cuántos, cómo son y qué hacen. No menciones el lugar ni el fondo. Si no hay "
+    "ninguno, descripcion vacía.")
 
 
 def analizar(url_llm, jpeg):
@@ -108,7 +162,7 @@ def analizar(url_llm, jpeg):
     imagen = "data:image/jpeg;base64," + base64.b64encode(jpeg).decode()
     cuerpo = {"messages": [{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": imagen}}, {"type": "text", "text": PREGUNTA}]}],
-        "temperature": 0, "max_tokens": 120,
+        "temperature": 0, "max_tokens": 160,
         "response_format": {"type": "json_schema", "json_schema": {"schema": ESQUEMA}}}
     req = urllib.request.Request(url_llm + "/v1/chat/completions", json.dumps(cuerpo).encode(),
                                  {"Content-Type": "application/json"})
@@ -117,12 +171,13 @@ def analizar(url_llm, jpeg):
 
 
 class Vigilancia:
-    def __init__(self, dispositivo, url_llm, subir):
-        """subir(jpeg, motivo, descripcion=None): POST /api/device/captura."""
-        self.dispositivo, self.url_llm, self.subir = dispositivo, url_llm, subir
+    def __init__(self, dispositivo, url_llm, subir, evento):
+        """subir(jpeg, motivo, descripcion=None): POST /api/device/captura (queda
+        en el registro con su foto). evento(texto): linea del registro sin foto."""
+        self.dispositivo, self.url_llm, self.subir, self.evento = dispositivo, url_llm, subir, evento
         self.ajustes = {**AJUSTES, **dispositivo.get("vigilancia", {})}
         self.nombre = dispositivo["nombre"]
-        self.foto = f"/dev/shm/neo-vigilancia-{abs(hash(dispositivo['rtsp'])) % 10**6}.jpg"
+        self.fotos = collections.deque(maxlen=SEGUNDOS_GUARDADOS * CUADROS_POR_S)  # (llegada, jpeg)
         self.activa = False
         self.reforzado_hasta = 0.0
         self.mirando = None
@@ -131,42 +186,35 @@ class Vigilancia:
         threading.Thread(target=self._analizar_siempre, daemon=True).start()
 
     # --- Entrada: cabeceras de cada respuesta de ordenes ---------------------
-    def actualizar(self, activa, reforzar):
+    def actualizar(self, activa, reforzar=None):
+        """reforzar: (zona, hora de activacion en s epoch) o None."""
         if activa != self.activa:
             log(self.nombre, "activada" if activa else "desactivada")
+            self.evento("Vigilancia activada" if activa else "Vigilancia desactivada")
         self.activa = activa
         if activa and (self.mirando is None or not self.mirando.is_alive()):
             self.mirando = threading.Thread(target=self._mirar, daemon=True)
             self.mirando.start()
         if activa and reforzar:
             self.reforzado_hasta = time.monotonic() + self.ajustes["reforzado_s"]
-            threading.Thread(target=self._zona, daemon=True).start()
+            threading.Thread(target=self._zona, args=reforzar, daemon=True).start()
 
     def reforzado(self):
         return time.monotonic() < self.reforzado_hasta
 
-    def _leer_foto(self, max_edad_s=3.0):
-        """Ultima foto en color si es reciente. ffmpeg la reescribe en el lugar:
-        una lectura a medio escribir no cierra en FF D9 y se reintenta."""
-        for _ in range(10):
-            try:
-                if time.time() - os.path.getmtime(self.foto) <= max_edad_s:
-                    with open(self.foto, "rb") as f:
-                        datos = f.read()
-                    if es_jpeg(datos):
-                        return datos
-            except OSError:
-                pass
-            time.sleep(0.2)
-        return None
-
-    def _zona(self):
-        foto = self._leer_foto()
+    def _zona(self, zona, activada_en):
+        momento = momento_foto_zona(self.ajustes, zona, activada_en)
+        espera = momento + 0.6 - time.time()  # si cae en el futuro, esperar a que llegue
+        if espera > 0:
+            time.sleep(min(espera, 5))
+        foto = foto_mas_cercana(list(self.fotos), momento)
         if foto is None:
-            log(self.nombre, "Z1/Z2 sin foto reciente")
+            log(self.nombre, f"Z{zona} sin foto de ese momento")
+            self.evento(f"Z{zona} activada, sin foto de ese momento")
             return
-        self.subir(foto, "zona")
-        log(self.nombre, "foto de Z1/Z2 subida")
+        antes = self.ajustes["antes_s"].get(str(zona), 2)
+        self.subir(foto, "zona", f"Foto de Z{zona}, {antes} s antes")
+        log(self.nombre, f"foto de Z{zona} subida ({time.time() - momento:.1f} s atras)")
         self._disparar(foto)  # en reforzado se analiza sin esperar movimiento
 
     def _disparar(self, foto):
@@ -174,18 +222,33 @@ class Vigilancia:
         self.disparo.set()
 
     # --- Deteccion de movimiento ---------------------------------------------
+    def _guardar_fotos(self, lectura):
+        pendiente = b""
+        with os.fdopen(lectura, "rb") as flujo:
+            while True:
+                trozo = flujo.read1(65536)
+                if not trozo:
+                    return
+                cuadros, pendiente = extraer_jpegs(pendiente + trozo)
+                for cuadro in cuadros:
+                    self.fotos.append((time.time(), cuadro))
+
     def _mirar(self):
         a = self.ajustes
         detector, sostenido = Detector(a["umbral_pixel"], a["adaptacion"]), Sostenido()
         tamano = ANCHO * ALTO
         while self.activa:
+            # Dos salidas: gris chico por stdout y fotos en color por un pipe aparte.
+            lectura, escritura = os.pipe()
             proceso = subprocess.Popen(
                 ["ffmpeg", "-nostdin", "-loglevel", "error", "-rtsp_transport", "tcp",
                  "-timeout", "10000000", "-i", self.dispositivo["rtsp"], "-an",
-                 "-filter_complex", f"[0:v]fps={CUADROS_POR_S},split[a][b];[a]scale={ANCHO}:{ALTO},format=gray[g];[b]fps=1[c]",
+                 "-filter_complex", f"[0:v]fps={CUADROS_POR_S},split[a][c];[a]scale={ANCHO}:{ALTO},format=gray[g]",
                  "-map", "[g]", "-f", "rawvideo", "pipe:1",
-                 "-map", "[c]", "-q:v", "5", "-update", "1", "-y", self.foto],
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                 "-map", "[c]", "-c:v", "mjpeg", "-q:v", "5", "-f", "image2pipe", f"pipe:{escritura}"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, pass_fds=(escritura,))
+            os.close(escritura)
+            threading.Thread(target=self._guardar_fotos, args=(lectura,), daemon=True).start()
             log(self.nombre, "mirando")
             try:
                 while self.activa:
@@ -200,7 +263,7 @@ class Vigilancia:
                     modo = a["reforzado"] if self.reforzado() else a["normal"]
                     if sostenido.agregar(fraccion, modo):
                         sostenido.vaciar()
-                        foto = self._leer_foto(max_edad_s=1.5)
+                        foto = foto_mas_cercana(list(self.fotos), time.time())
                         if foto:
                             self._disparar(foto)
             finally:
@@ -211,46 +274,62 @@ class Vigilancia:
                     proceso.kill()
             if self.activa:
                 time.sleep(5)
-        try:
-            os.remove(self.foto)
-        except OSError:
-            pass
+        self.fotos.clear()
         log(self.nombre, "dejo de mirar")
 
     # --- Analisis con el modelo ----------------------------------------------
     def _analizar_siempre(self):
-        ultimo_analisis, ultimo_aviso = 0.0, 0.0
+        fin_analisis, ultimo_aviso = 0.0, 0.0
         while True:
             self.disparo.wait()
             self.disparo.clear()
-            foto, ahora = self.foto_disparo, time.monotonic()
+            foto = self.foto_disparo
             pausa = self.ajustes["pausa_analisis_s"]["reforzado" if self.reforzado() else "normal"]
-            if not self.activa or foto is None or ahora - ultimo_analisis < pausa:
+            if not self.activa or foto is None or time.monotonic() - fin_analisis < pausa:
                 continue  # un disparo durante la pausa se descarta, no se encola
             if temperatura_c() > self.ajustes["temperatura_max_c"]:
                 log(self.nombre, "analisis salteado por temperatura")
                 continue
-            ultimo_analisis = ahora
             try:
                 inicio = time.monotonic()
                 resultado = analizar(self.url_llm, foto)
                 log(self.nombre, f"analisis en {time.monotonic() - inicio:.0f} s:", resultado)
+                # Solo vehiculo: una foto no dice si estaba pasando. La de ahora
+                # (~2 min despues) tiene que seguir mostrandolo.
+                if resultado.get("vehiculo") is True and resultado.get("persona") is not True:
+                    ahora = foto_mas_cercana(list(self.fotos), time.time())
+                    segundo = analizar(self.url_llm, ahora) if ahora else {}
+                    log(self.nombre, "confirmacion de vehiculo:", segundo)
+                    if segundo.get("vehiculo") is not True:
+                        resultado = {**resultado, "vehiculo": False, "paso": True}
             except Exception as error:  # noqa: BLE001 - el hilo nunca debe morir
                 log(self.nombre, "analisis fallo:", error)
+                self.evento("Análisis falló")
                 continue
+            finally:
+                fin_analisis = time.monotonic()
             texto = aviso(resultado)
-            if texto and self.activa and time.monotonic() - ultimo_aviso >= self.ajustes["pausa_aviso_s"]:
+            if not texto:
+                self.evento("Análisis: un vehículo pasó, no se detuvo" if resultado.get("paso")
+                            else "Análisis: sin personas ni vehículos detenidos")
+            elif not self.activa:
+                self.evento(f"Análisis: {texto} (sin aviso, la vigilancia ya terminó)")
+            elif time.monotonic() - ultimo_aviso < self.ajustes["pausa_aviso_s"]:
+                self.evento(f"Análisis: {texto} (sin aviso, hubo uno hace menos de 5 min)")
+            else:
                 ultimo_aviso = time.monotonic()
                 self.subir(foto, "deteccion", texto)
 
 
 def aviso(resultado):
     """Texto de la notificacion, o None si no hay persona ni vehiculo."""
-    quien = [q for q, clave in (("Persona", "persona"), ("Vehículo", "vehiculo")) if resultado.get(clave) is True]
-    if not quien:
+    persona, vehiculo = resultado.get("persona") is True, resultado.get("vehiculo") is True
+    if not (persona or vehiculo):
         return None
+    quien = ("Persona y vehículo detenido" if persona and vehiculo
+             else "Persona" if persona else "Vehículo detenido")
     descripcion = str(resultado.get("descripcion", "")).strip()
-    return f"{' y '.join(quien)} en la entrada" + (f": {descripcion}" if descripcion else "")
+    return f"{quien} en la entrada" + (f": {descripcion}" if descripcion else "")
 
 
 def selftest():
@@ -268,9 +347,26 @@ def selftest():
     assert any(s.agregar(0.05, AJUSTES["reforzado"]) for _ in range(2))  # en reforzado si
     assert aviso({"descripcion": "un hombre en la vereda", "persona": True, "vehiculo": False}) == \
         "Persona en la entrada: un hombre en la vereda"
-    assert aviso({"descripcion": "auto", "persona": True, "vehiculo": True}).startswith("Persona y Vehículo")
+    assert aviso({"descripcion": "auto", "persona": True, "vehiculo": True}).startswith("Persona y vehículo detenido")
+    assert aviso({"descripcion": "auto gris", "persona": False, "vehiculo": True}) == \
+        "Vehículo detenido en la entrada: auto gris"
+    assert aviso({"descripcion": "auto", "persona": False, "vehiculo": False, "paso": True}) is None
+    assert aviso({"descripcion": "", "persona": True, "vehiculo": False}) == "Persona en la entrada"
     assert aviso({"descripcion": "un perro", "persona": False, "vehiculo": False}) is None
-    assert es_jpeg(b"\xff\xd8xx\xff\xd9") and not es_jpeg(b"\xff\xd8xx")
+    # Foto de zona: Z1 2 s antes, Z2 3 s antes, mas el retraso de la camara.
+    assert momento_foto_zona(AJUSTES, 1, 1000.0) == 999.0
+    assert momento_foto_zona(AJUSTES, 2, 1000.0) == 998.0
+    fotos = [(990.0 + i / 2, bytes([i])) for i in range(24)]  # 990,0 .. 1001,5
+    assert foto_mas_cercana(fotos, 998.0) == bytes([16])
+    assert foto_mas_cercana(fotos, 999.2) == bytes([18])
+    assert foto_mas_cercana(fotos, 980.0) is None and foto_mas_cercana([], 1.0) is None
+    assert leer_reforzar("2@1731300000123") == (2, 1731300000.123)
+    assert leer_reforzar(None) is None and leer_reforzar("x@y") is None and leer_reforzar("2") is None
+    assert leer_reforzar("1")[0] == 1
+    a, b = b"\xff\xd8AAA\xff\x00\xff\xd9", b"\xff\xd8BB\xff\xd9"
+    assert extraer_jpegs(b"basura" + a + b + b"\xff\xd8CC") == ([a, b], b"\xff\xd8CC")
+    assert extraer_jpegs(b"\xff\xd8sin fin") == ([], b"\xff\xd8sin fin")
+    assert extraer_jpegs(b"sin inicio") == ([], b"")
     print("selftest vigilancia OK")
 
 

@@ -36,17 +36,21 @@ export async function vigilanciaActiva() {
 
 // --- Pedido de captura (Z1/Z2) ----------------------------------------------
 // En memoria, como esperaComandos: una sola instancia de Railway.
-const reforzar = new Set();
+const reforzar = new Map();
 const capturas = new EventEmitter();
 
-// La proxima respuesta de ordenes de esa camara lleva X-Reforzar: 1.
+// Valor de X-Reforzar para la proxima respuesta de ordenes de esa camara (o
+// undefined): "<zona>@<ms epoch de la activacion>". Con la hora, NEO elige de
+// su memoria la foto de unos segundos antes (ADR-0015).
 export function tomarReforzar(camaraId) {
-  return reforzar.delete(String(camaraId));
+  const valor = reforzar.get(String(camaraId));
+  reforzar.delete(String(camaraId));
+  return valor;
 }
 
 // Despierta a las camaras y resuelve con el id de la primera captura de zona
 // que llegue, o null a los `ms`.
-export async function pedirCaptura(ms) {
+export async function pedirCaptura(ms, zona, activadaEn) {
   const { rows } = await pool.query(`SELECT id FROM dispositivos WHERE tipo = 'camara'`);
   if (rows.length === 0) return null;
   return new Promise((resolve) => {
@@ -54,7 +58,7 @@ export async function pedirCaptura(ms) {
     const reloj = setTimeout(() => { capturas.off('zona', listo); resolve(null); }, ms);
     capturas.once('zona', listo);
     for (const { id } of rows) {
-      reforzar.add(String(id));
+      reforzar.set(String(id), `${zona}@${activadaEn}`);
       avisarOrden(id);
     }
   });
@@ -75,6 +79,14 @@ export function guardarCaptura(imagen, motivo) {
   guardadas.set(id, { imagen, at: ahora });
   if (motivo === 'zona') capturas.emit('zona', id);
   return id;
+}
+
+// --- Registro (tabla eventos) -------------------------------------------------
+const TEXTO_MAX = 300;
+
+export async function registrarEvento(dispositivoId, texto, captura = null) {
+  await pool.query('INSERT INTO eventos (dispositivo_id, texto, captura) VALUES ($1, $2, $3)',
+    [dispositivoId, String(texto).slice(0, TEXTO_MAX), captura]);
 }
 
 export function leerCaptura(id) {

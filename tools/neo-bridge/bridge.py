@@ -30,7 +30,7 @@ import urllib.parse
 import urllib.request
 
 import vigilancia
-from vigilancia import Vigilancia
+from vigilancia import Vigilancia, extraer_jpegs, leer_reforzar
 
 CONFIG_PATH = "/etc/neo-bridge.json"
 
@@ -181,19 +181,8 @@ class Backend:
             extra["X-Descripcion"] = urllib.parse.quote(descripcion)
         return self._pedir("POST", "/api/device/captura", jpeg, tipo="image/jpeg", extra=extra)
 
-
-def extraer_jpegs(buffer):
-    """Separa los JPEG completos de un flujo MJPEG (de FF D8 a FF D9).
-    Devuelve (cuadros, resto). FF D9 no aparece dentro de los datos de un JPEG
-    de ffmpeg: los FF del contenido se codifican como FF 00."""
-    cuadros = []
-    while True:
-        inicio = buffer.find(b"\xff\xd8")
-        fin = buffer.find(b"\xff\xd9", inicio + 2) if inicio >= 0 else -1
-        if inicio < 0 or fin < 0:
-            return cuadros, buffer[inicio:] if inicio >= 0 else b""
-        cuadros.append(buffer[inicio:fin + 2])
-        buffer = buffer[fin + 2:]
+    def evento(self, texto):
+        return self._pedir("POST", "/api/device/evento", {"texto": texto})
 
 
 VER_SEGUNDOS = 120  # corte automatico: la pagina renueva con "Seguir mirando"
@@ -350,11 +339,22 @@ def atender_camara(dispositivo, url, url_llm):
         except Exception as error:  # noqa: BLE001
             log(nombre, "no se pudo subir la captura:", error)
 
-    vigilancia = Vigilancia(dispositivo, url_llm, subir)
+    def registrar(texto):
+        try:
+            with candado:
+                capturas.evento(texto)
+        except Exception as error:  # noqa: BLE001
+            log(nombre, "no se pudo registrar el evento:", error)
+
+    # En otro hilo: se llama desde la espera de ordenes y no la debe frenar.
+    def evento(texto):
+        threading.Thread(target=registrar, args=(texto,), daemon=True).start()
+
+    vigilancia = Vigilancia(dispositivo, url_llm, subir, evento)
 
     def al_responder(cabeceras):
         if "x-vigilancia" in cabeceras:  # backend sin vigilancia: no se toca nada
-            vigilancia.actualizar(cabeceras["x-vigilancia"] == "1", cabeceras.get("x-reforzar") == "1")
+            vigilancia.actualizar(cabeceras["x-vigilancia"] == "1", leer_reforzar(cabeceras.get("x-reforzar")))
 
     def ejecutar(comando):
         tipo = comando.get("tipo_comando")
@@ -617,10 +617,6 @@ if __name__ == "__main__":
                      {"color": "#zzzzzz"}, {"color": "red"}, {"color": "#fff", "brillo": 3},
                      {"temperatura_k": 3000, "color": "#ffffff"}, {"efecto": 1}):
             assert ajuste_a_ha(malo) is None, malo
-        a, b = b"\xff\xd8AAA\xff\x00\xff\xd9", b"\xff\xd8BB\xff\xd9"
-        assert extraer_jpegs(b"basura" + a + b + b"\xff\xd8CC") == ([a, b], b"\xff\xd8CC")
-        assert extraer_jpegs(b"\xff\xd8sin fin") == ([], b"\xff\xd8sin fin")
-        assert extraer_jpegs(b"sin inicio") == ([], b"")
         assert set(GIROS) == {"arriba", "abajo", "izquierda", "derecha"}  # igual a DIRECCIONES del backend
         PAGINA["abierta"] = True
         assert intervalo_reporte("disyuntor") == 5

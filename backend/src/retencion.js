@@ -43,7 +43,11 @@ async function borrarEstadosViejos() {
        SELECT id FROM viejas WHERE por_hora > 1 AND por_pico > 1 AND por_dia > 1)`,
     [DIAS_DETALLE_DISYUNTOR]
   );
-  const total = result.rowCount + servidor.rowCount + disyuntor.rowCount;
+  const eventos = await pool.query(
+    'DELETE FROM eventos WHERE created_at < now() - make_interval(days => $1)',
+    [DIAS_RETENCION]
+  );
+  const total = result.rowCount + servidor.rowCount + disyuntor.rowCount + eventos.rowCount;
   if (total > 0) {
     console.log(`Retencion: ${result.rowCount} de mas de ${DIAS_RETENCION} dias, `
       + `${servidor.rowCount} de NEO, ${disyuntor.rowCount} del disyuntor compactadas`);

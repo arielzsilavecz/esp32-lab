@@ -1968,6 +1968,10 @@ button:disabled {
   font-size: 14px;
 }
 
+.camara-registro a {
+  color: var(--accent);
+}
+
 .asistente {
   display: flex;
   flex-direction: row;
