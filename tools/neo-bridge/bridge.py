@@ -8,8 +8,8 @@ Por cada dispositivo configurado (luz o disyuntor), un hilo:
 
 Las camaras (kind "camara", ADR-0012) no pasan por Home Assistant: con la orden
 "ver" se lanza ffmpeg sobre su RTSP y se suben cuadros JPEG al backend durante
-2 min (o hasta "detener"). Sin pedido no hay ffmpeg ni trafico. Con alguien en
-"Estoy afuera" ademas vigila (vigilancia.py, ADR-0015).
+2 min (o hasta "detener"). La vigilancia funciona siempre; sus avisos
+dependen de "Estoy afuera" (vigilancia.py, ADR-0015).
 
 El asistente (kind "asistente", ADR-0014) recibe ordenes escritas, las resuelve
 con reglas o con el modelo local (neo-llm, 127.0.0.1:8090) y actua sobre las

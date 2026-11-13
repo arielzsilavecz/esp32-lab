@@ -23,7 +23,7 @@ function formatoRestante(ms) {
   return `${Math.floor(segundos / 60)}:${String(segundos % 60).padStart(2, '0')}`;
 }
 
-// Registro de la vigilancia (ADR-0015): lo que hizo NEO con "Estoy afuera".
+// Registro de la vigilancia permanente (ADR-0015).
 // Plegado por defecto; se pide al abrirlo, al cambiar de dia y al volver a la
 // pagina con el registro abierto. Usa crearSelectorFecha y mostrarLogPorHora
 // de app.js.

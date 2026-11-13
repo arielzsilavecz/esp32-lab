@@ -83,3 +83,12 @@ conoce.
 - Medicion real: 60 s de vigilancia sin disparos falsos (maximo 4,4 % de imagen
   cambiada); foto de Z1 subida al instante; analisis correcto en 129 s.
 - Pendiente de calibrar con uso real: umbrales de dia/noche y viento.
+
+## Vigilancia permanente
+
+La camara vigila y registra resultados siempre. La cabecera `X-Vigilancia`
+controla solo los avisos, que siguen sujetos a "Estoy afuera" o su horario.
+Las detecciones sin aviso se suben como `registro` y conservan foto temporal;
+no consumen la pausa de cinco minutos de los avisos. Z1/Z2 refuerzan la
+vigilancia tambien fuera del horario de avisos. Se mantienen los limites de
+analisis y temperatura existentes.

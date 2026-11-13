@@ -1,5 +1,5 @@
-"""Vigilancia de una camara en NEO (ADR-0015). Solo corre con alguien en
-"Estoy afuera" (cabecera X-Vigilancia de la espera de ordenes).
+"""Vigilancia permanente de una camara en NEO (ADR-0015).
+La cabecera X-Vigilancia controla solo los avisos.
 
 - Un ffmpeg sobre la calidad secundaria saca 2 cuadros/s de 64x36 en gris (para
   detectar movimiento) y 2 fotos/s en color, de las que se guardan en memoria
@@ -179,6 +179,7 @@ class Vigilancia:
         self.nombre = dispositivo["nombre"]
         self.fotos = collections.deque(maxlen=SEGUNDOS_GUARDADOS * CUADROS_POR_S)  # (llegada, jpeg)
         self.activa = False
+        self.avisos_activos = False
         self.reforzado_hasta = 0.0
         self.mirando = None
         self.disparo = threading.Event()
@@ -186,16 +187,16 @@ class Vigilancia:
         threading.Thread(target=self._analizar_siempre, daemon=True).start()
 
     # --- Entrada: cabeceras de cada respuesta de ordenes ---------------------
-    def actualizar(self, activa, reforzar=None):
+    def actualizar(self, avisos_activos, reforzar=None):
         """reforzar: (zona, hora de activacion en s epoch) o None."""
-        if activa != self.activa:
-            log(self.nombre, "activada" if activa else "desactivada")
-            self.evento("Vigilancia activada" if activa else "Vigilancia desactivada")
-        self.activa = activa
-        if activa and (self.mirando is None or not self.mirando.is_alive()):
+        self.avisos_activos = avisos_activos
+        if not self.activa:
+            self.activa = True
+            self.evento("Vigilancia permanente activada")
+        if self.mirando is None or not self.mirando.is_alive():
             self.mirando = threading.Thread(target=self._mirar, daemon=True)
             self.mirando.start()
-        if activa and reforzar:
+        if reforzar:
             self.reforzado_hasta = time.monotonic() + self.ajustes["reforzado_s"]
             threading.Thread(target=self._zona, args=reforzar, daemon=True).start()
 
@@ -312,8 +313,8 @@ class Vigilancia:
             if not texto:
                 self.evento("Análisis: un vehículo pasó, no se detuvo" if resultado.get("paso")
                             else "Análisis: sin personas ni vehículos detenidos")
-            elif not self.activa:
-                self.evento(f"Análisis: {texto} (sin aviso, la vigilancia ya terminó)")
+            elif not self.avisos_activos:
+                self.subir(foto, "registro", texto)
             elif time.monotonic() - ultimo_aviso < self.ajustes["pausa_aviso_s"]:
                 self.evento(f"Análisis: {texto} (sin aviso, hubo uno hace menos de 5 min)")
             else:

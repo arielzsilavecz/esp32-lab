@@ -60,8 +60,8 @@ deviceRouter.post('/captura', express.raw({ type: 'image/jpeg', limit: '400kb' }
     return res.status(400).json({ error: 'Se esperaba un JPEG' });
   }
   const motivo = req.get('X-Motivo');
-  if (motivo !== 'zona' && motivo !== 'deteccion') {
-    return res.status(400).json({ error: 'X-Motivo debe ser zona o deteccion' });
+  if (!['zona', 'deteccion', 'registro'].includes(motivo)) {
+    return res.status(400).json({ error: 'X-Motivo debe ser zona, deteccion o registro' });
   }
   let descripcion = motivo === 'zona' ? 'Foto de zona' : 'Movimiento detectado';
   try {
