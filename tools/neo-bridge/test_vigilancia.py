@@ -12,7 +12,7 @@ class VigilanciaPermanenteTest(unittest.TestCase):
         camara.ajustes = vigilancia.AJUSTES
         camara.nombre = 'Prueba'
         camara.url_llm = 'http://localhost'
-        camara.foto_disparo = b'foto'
+        camara.foto_disparo = (b'foto', 1731540000.0)
         camara.disparo = Mock()
         camara.disparo.wait.side_effect = [None, StopIteration]
         camara.subir = Mock()
@@ -28,11 +28,11 @@ class VigilanciaPermanenteTest(unittest.TestCase):
 
     def test_deteccion_se_registra_sin_generar_aviso(self):
         camara = self.analizar_una_deteccion(False)
-        camara.subir.assert_called_once_with(b'foto', 'registro', 'Persona en la entrada')
+        camara.subir.assert_called_once_with(b'foto', 'registro', 'Persona en la entrada', 1731540000.0)
 
     def test_deteccion_mantiene_aviso_cuando_esta_habilitado(self):
         camara = self.analizar_una_deteccion(True)
-        camara.subir.assert_called_once_with(b'foto', 'deteccion', 'Persona en la entrada')
+        camara.subir.assert_called_once_with(b'foto', 'deteccion', 'Persona en la entrada', 1731540000.0)
 
 
 if __name__ == '__main__':

@@ -84,9 +84,9 @@ export function guardarCaptura(imagen, motivo) {
 // --- Registro (tabla eventos) -------------------------------------------------
 const TEXTO_MAX = 300;
 
-export async function registrarEvento(dispositivoId, texto, captura = null) {
-  await pool.query('INSERT INTO eventos (dispositivo_id, texto, captura) VALUES ($1, $2, $3)',
-    [dispositivoId, String(texto).slice(0, TEXTO_MAX), captura]);
+export async function registrarEvento(dispositivoId, texto, captura = null, ocurridoEn = null) {
+  await pool.query('INSERT INTO eventos (dispositivo_id, texto, captura, ocurrido_en) VALUES ($1, $2, $3, $4)',
+    [dispositivoId, String(texto).slice(0, TEXTO_MAX), captura, ocurridoEn]);
 }
 
 export function leerCaptura(id) {

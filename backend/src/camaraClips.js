@@ -19,3 +19,7 @@ export function leerClip(id, dispositivoId) {
   if (!clip || clip.dispositivoId !== String(dispositivoId) || clip.expira <= Date.now()) return null;
   return clip;
 }
+
+export function eliminarClip(id) {
+  clips.delete(id);
+}

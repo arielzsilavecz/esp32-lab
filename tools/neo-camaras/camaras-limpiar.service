@@ -1,5 +1,5 @@
 [Unit]
-Description=NEO: recortar grabaciones de camaras a su limite de espacio
+Description=NEO: recortar grabaciones de camaras a su limite y controlar el audio
 RequiresMountsFor=/mnt/backups
 
 [Service]

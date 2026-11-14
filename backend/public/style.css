@@ -2008,6 +2008,15 @@ button:disabled {
 }
 .camara-visor img[hidden], .camara-visor video[hidden] { display: none; }
 
+.camara-visor-controles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.camara-visor-controles[hidden] { display: none; }
+
 .asistente {
   display: flex;
   flex-direction: row;

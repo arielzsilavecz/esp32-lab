@@ -8,8 +8,13 @@ import { deviceRouter } from './routes/device.js';
 test('un registro solicita video y solo la cámara correcta puede subirlo', async () => {
   const original = pool.query;
   let parametros;
+  let eventoGuardado;
   pool.query = async (sql, valores) => {
-    if (sql.includes('SELECT e.created_at')) return { rowCount: 1, rows: [{ created_at: new Date('2026-11-13T23:00:00Z') }] };
+    if (sql.includes('SELECT e.created_at')) return { rowCount: 1, rows: [{ created_at: new Date('2026-11-13T23:02:00Z'), ocurrido_en: new Date('2026-11-13T23:00:00Z') }] };
+    if (sql.includes('INSERT INTO eventos')) {
+      eventoGuardado = valores;
+      return { rowCount: 1, rows: [] };
+    }
     if (sql.includes('INSERT INTO comandos')) {
       parametros = JSON.parse(valores[3]);
       return { rowCount: 1, rows: [{ id: 1 }] };
@@ -31,10 +36,14 @@ test('un registro solicita video y solo la cámara correcta puede subirlo', asyn
   });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    const creacion = await fetch(`${base}/api/dispositivos/7/eventos/1/clip`, { method: 'POST' });
+    const creacion = await fetch(`${base}/api/dispositivos/7/eventos/1/clip`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ desplazamiento: -30 }),
+    });
     assert.equal(creacion.status, 202);
     const { id } = await creacion.json();
     assert.equal(parametros.clip_id, id);
+    assert.equal(parametros.fecha, '2026-11-13T22:59:30.000Z');
     assert.equal((await fetch(`${base}/api/dispositivos/7/clips/${id}`)).status, 204);
     const video = Buffer.from('0000ftyp0000');
     const upload = (token) => fetch(`${base}/api/device/clip/${id}`, {
@@ -46,6 +55,17 @@ test('un registro solicita video y solo la cámara correcta puede subirlo', asyn
     assert.equal(lectura.status, 200);
     assert.deepEqual(Buffer.from(await lectura.arrayBuffer()), video);
     assert.equal((await fetch(`${base}/api/dispositivos/8/clips/${id}`)).status, 404);
+    const evento = await fetch(`${base}/api/device/evento`, {
+      method: 'POST', headers: { Authorization: 'Bearer camera', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto: 'Movimiento', ocurrido_en: '2026-11-13T23:00:00.000Z' }),
+    });
+    assert.equal(evento.status, 204);
+    assert.equal(eventoGuardado[3].toISOString(), '2026-11-13T23:00:00.000Z');
+    const invalido = await fetch(`${base}/api/dispositivos/7/eventos/1/clip`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ desplazamiento: 3601 }),
+    });
+    assert.equal(invalido.status, 400);
   } finally {
     pool.query = original;
     await new Promise((resolve) => server.close(resolve));

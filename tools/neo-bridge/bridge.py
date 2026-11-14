@@ -178,14 +178,19 @@ class Backend:
     def subir_imagen(self, jpeg):
         return self._pedir("POST", "/api/device/imagen", jpeg, tipo="image/jpeg")
 
-    def subir_captura(self, jpeg, motivo, descripcion=None):
+    def subir_captura(self, jpeg, motivo, descripcion=None, ocurrido_en=None):
         extra = {"X-Motivo": motivo}
         if descripcion:
             extra["X-Descripcion"] = urllib.parse.quote(descripcion)
+        if ocurrido_en is not None:
+            extra["X-Ocurrido-En"] = datetime.datetime.fromtimestamp(ocurrido_en, datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
         return self._pedir("POST", "/api/device/captura", jpeg, tipo="image/jpeg", extra=extra)
 
-    def evento(self, texto):
-        return self._pedir("POST", "/api/device/evento", {"texto": texto})
+    def evento(self, texto, ocurrido_en=None):
+        cuerpo = {"texto": texto}
+        if ocurrido_en is not None:
+            cuerpo["ocurrido_en"] = datetime.datetime.fromtimestamp(ocurrido_en, datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+        return self._pedir("POST", "/api/device/evento", cuerpo)
 
     def subir_clip(self, clip_id, video):
         return self._pedir("POST", f"/api/device/clip/{clip_id}", video, tipo="video/mp4")
@@ -359,23 +364,23 @@ def atender_camara(dispositivo, url, url_llm):
     # Capturas desde dos hilos (foto de zona y analisis): una conexion con candado.
     capturas, candado = Backend(url, dispositivo["token"]), threading.Lock()
 
-    def subir(jpeg, motivo, descripcion=None):
+    def subir(jpeg, motivo, descripcion=None, ocurrido_en=None):
         try:
             with candado:
-                capturas.subir_captura(jpeg, motivo, descripcion)
+                capturas.subir_captura(jpeg, motivo, descripcion, ocurrido_en)
         except Exception as error:  # noqa: BLE001
             log(nombre, "no se pudo subir la captura:", error)
 
-    def registrar(texto):
+    def registrar(texto, ocurrido_en=None):
         try:
             with candado:
-                capturas.evento(texto)
+                capturas.evento(texto, ocurrido_en)
         except Exception as error:  # noqa: BLE001
             log(nombre, "no se pudo registrar el evento:", error)
 
     # En otro hilo: se llama desde la espera de ordenes y no la debe frenar.
-    def evento(texto):
-        threading.Thread(target=registrar, args=(texto,), daemon=True).start()
+    def evento(texto, ocurrido_en=None):
+        threading.Thread(target=registrar, args=(texto, ocurrido_en), daemon=True).start()
 
     vigilancia = Vigilancia(dispositivo, url_llm, subir, evento)
 
@@ -397,8 +402,8 @@ def atender_camara(dispositivo, url, url_llm):
                 salida = Path(temporal) / 'clip.mp4'
                 subprocess.run(['nice', '-n', '19', 'ffmpeg', '-nostdin', '-loglevel', 'error',
                     '-ss', str(max(0, desplazamiento - 10)), '-i', str(archivo), '-t', '30',
-                    '-map', '0:v:0', '-vf', 'scale=640:-2', '-c:v', 'libx264', '-threads', '1',
-                    '-preset', 'ultrafast', '-crf', '30', '-an', '-movflags', '+faststart',
+                    '-map', '0:v:0', '-map', '0:a:0?', '-vf', 'scale=640:-2', '-c:v', 'libx264', '-threads', '1',
+                    '-preset', 'ultrafast', '-crf', '30', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart',
                     '-y', str(salida)], check=True, timeout=90)
                 status, _ = backend.subir_clip(clip_id, salida.read_bytes())
                 if status != 204:

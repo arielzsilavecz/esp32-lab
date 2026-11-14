@@ -15,6 +15,13 @@ export const deviceRouter = Router();
 
 deviceRouter.use(requireDeviceToken);
 
+function fechaEvento(valor) {
+  if (valor == null || valor === '') return null;
+  if (typeof valor !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(valor)) return false;
+  const fecha = new Date(valor);
+  return Number.isFinite(fecha.getTime()) && fecha.getTime() <= Date.now() + 300000 ? fecha : false;
+}
+
 deviceRouter.post('/clip/:id', express.raw({ type: 'video/mp4', limit: '10mb' }), (req, res) => {
   if (req.dispositivo.tipo !== 'camara') return res.status(403).end();
   const clip = leerClip(req.params.id, req.dispositivo.id);
@@ -64,7 +71,9 @@ deviceRouter.post('/imagen', express.raw({ type: 'image/jpeg', limit: '400kb' })
 deviceRouter.post('/evento', async (req, res) => {
   const texto = typeof req.body?.texto === 'string' ? req.body.texto.trim() : '';
   if (!texto) return res.status(400).json({ error: 'Falta "texto"' });
-  await registrarEvento(req.dispositivo.id, texto);
+  const ocurridoEn = fechaEvento(req.body?.ocurrido_en);
+  if (ocurridoEn === false) return res.status(400).json({ error: 'Fecha de evento inválida' });
+  await registrarEvento(req.dispositivo.id, texto, null, ocurridoEn);
   res.status(204).end();
 });
 
@@ -83,6 +92,8 @@ deviceRouter.post('/captura', express.raw({ type: 'image/jpeg', limit: '400kb' }
   if (!['zona', 'deteccion', 'registro'].includes(motivo)) {
     return res.status(400).json({ error: 'X-Motivo debe ser zona, deteccion o registro' });
   }
+  const ocurridoEn = fechaEvento(req.get('X-Ocurrido-En'));
+  if (ocurridoEn === false) return res.status(400).json({ error: 'Fecha de evento inválida' });
   let descripcion = motivo === 'zona' ? 'Foto de zona' : 'Movimiento detectado';
   try {
     descripcion = decodeURIComponent(req.get('X-Descripcion') || '').slice(0, 200) || descripcion;
@@ -90,7 +101,7 @@ deviceRouter.post('/captura', express.raw({ type: 'image/jpeg', limit: '400kb' }
 
   const id = guardarCaptura(req.body, motivo);
   res.status(204).end();
-  void registrarEvento(req.dispositivo.id, motivo === 'deteccion' ? `Aviso: ${descripcion}` : descripcion, id)
+  void registrarEvento(req.dispositivo.id, motivo === 'deteccion' ? `Aviso: ${descripcion}` : descripcion, id, ocurridoEn)
     .catch((error) => console.error('No se pudo registrar la captura:', error.message));
   if (motivo === 'deteccion') {
     void notifyCameraAlert(req.dispositivo, descripcion, id)

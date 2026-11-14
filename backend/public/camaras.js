@@ -52,6 +52,33 @@ function crearRegistroCamara(dispositivo) {
   const video = document.createElement('video');
   video.controls = true;
   video.hidden = true;
+  const controlesVideo = document.createElement('div');
+  controlesVideo.className = 'camara-visor-controles';
+  controlesVideo.hidden = true;
+  const anterior = document.createElement('button');
+  anterior.type = 'button';
+  anterior.textContent = '← 30 s';
+  const siguiente = document.createElement('button');
+  siguiente.type = 'button';
+  siguiente.textContent = '30 s →';
+  const etiquetaVelocidad = document.createElement('label');
+  etiquetaVelocidad.textContent = 'Velocidad ';
+  const velocidad = document.createElement('select');
+  velocidad.setAttribute('aria-label', 'Velocidad de reproducción');
+  for (const valor of [0.25, 0.5, 1, 1.25, 1.5]) {
+    const opcion = document.createElement('option');
+    opcion.value = String(valor);
+    opcion.textContent = `${valor}×`;
+    opcion.selected = valor === 1;
+    velocidad.append(opcion);
+  }
+  velocidad.addEventListener('change', () => { video.playbackRate = Number(velocidad.value); });
+  etiquetaVelocidad.append(velocidad);
+  controlesVideo.append(anterior, siguiente, etiquetaVelocidad);
+  let eventoVideo = null;
+  let desplazamiento = 0;
+  anterior.addEventListener('click', () => verVideo(eventoVideo, desplazamiento - 30));
+  siguiente.addEventListener('click', () => verVideo(eventoVideo, desplazamiento + 30));
   let urlVideo = null;
   let solicitud = 0;
   const errorFoto = document.createElement('p');
@@ -73,17 +100,31 @@ function crearRegistroCamara(dispositivo) {
   visor.addEventListener('click', (event) => {
     if (event.target === visor) visor.close();
   });
-  visor.append(cabecera, imagen, video, errorFoto);
+  visor.append(cabecera, imagen, video, controlesVideo, errorFoto);
 
-  async function verVideo(evento) {
+  async function verVideo(evento, nuevoDesplazamiento = 0) {
+    if (!evento || Math.abs(nuevoDesplazamiento) > 3600) return;
+    eventoVideo = evento;
+    desplazamiento = nuevoDesplazamiento;
     const actual = ++solicitud;
-    descripcion.textContent = `${horaExactaAR(evento.createdAt)} · Video cercano al registro`;
+    const hora = new Date(new Date(evento.createdAt).getTime() + desplazamiento * 1000);
+    descripcion.textContent = `${horaExactaAR(hora.toISOString())} · Video cercano al registro`;
     imagen.hidden = true;
     video.hidden = true;
-    errorFoto.textContent = 'Preparando video… La hora del registro puede ser posterior al movimiento.';
-    visor.showModal();
+    controlesVideo.hidden = false;
+    anterior.disabled = true;
+    siguiente.disabled = true;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    if (urlVideo) URL.revokeObjectURL(urlVideo);
+    urlVideo = null;
+    errorFoto.textContent = 'Preparando video…';
+    if (!visor.open) visor.showModal();
     try {
-      const respuesta = await api(`/api/dispositivos/${dispositivo.id}/eventos/${evento.id}/clip`, { method: 'POST' });
+      const respuesta = await api(`/api/dispositivos/${dispositivo.id}/eventos/${evento.id}/clip`, {
+        method: 'POST', body: JSON.stringify({ desplazamiento }),
+      });
       const { id } = await exigirRespuestaExitosa(respuesta);
       const limite = Date.now() + 90_000;
       while (actual === solicitud && Date.now() < limite) {
@@ -94,7 +135,8 @@ function crearRegistroCamara(dispositivo) {
           urlVideo = URL.createObjectURL(blob);
           video.src = urlVideo;
           video.hidden = false;
-          errorFoto.textContent = 'Video sin audio. La hora del registro puede ser posterior al movimiento.';
+          video.playbackRate = Number(velocidad.value);
+          errorFoto.textContent = evento.ocurrido_en ? '' : 'Registro anterior: la hora puede ser posterior al movimiento.';
           return;
         }
         if (clip.status !== 204) await exigirRespuestaExitosa(clip);
@@ -103,13 +145,18 @@ function crearRegistroCamara(dispositivo) {
       if (actual === solicitud) errorFoto.textContent = 'El video tardó demasiado. Probá nuevamente.';
     } catch (error) {
       if (actual === solicitud) errorFoto.textContent = error.message;
+    } finally {
+      if (actual === solicitud) {
+        anterior.disabled = desplazamiento <= -3600;
+        siguiente.disabled = desplazamiento >= 3600;
+      }
     }
   }
 
   async function cargar() {
     try {
       const response = await api(`/api/dispositivos/${dispositivo.id}/eventos?fecha=${fechaEl.value}`, { cache: 'no-store' });
-      const eventos = (await exigirRespuestaExitosa(response)).map((e) => ({ ...e, createdAt: e.created_at }));
+      const eventos = (await exigirRespuestaExitosa(response)).map((e) => ({ ...e, createdAt: e.ocurrido_en || e.created_at }));
       mostrarLogPorHora(logEl, eventos, {
         vacio: 'Sin registros este día',
         cuenta: (n) => (n === 1 ? '1 registro' : `${n} registros`),
@@ -126,6 +173,7 @@ function crearRegistroCamara(dispositivo) {
               descripcion.textContent = `${horaExactaAR(evento.createdAt)} · ${evento.texto}`;
               errorFoto.textContent = '';
               video.hidden = true;
+              controlesVideo.hidden = true;
               imagen.hidden = false;
               imagen.src = evento.foto;
               visor.showModal();

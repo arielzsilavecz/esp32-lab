@@ -104,12 +104,17 @@ class Sostenido:
         self.ultimos.clear()
 
 
-def foto_mas_cercana(fotos, momento, tolerancia_s=1.5):
-    """De [(llegada, jpeg)], la que llego mas cerca de `momento`, o None."""
+def captura_mas_cercana(fotos, momento, tolerancia_s=1.5):
+    """Devuelve (hora de llegada, jpeg) de la captura mas cercana, o None."""
     if not fotos:
         return None
     llegada, jpeg = min(fotos, key=lambda f: abs(f[0] - momento))
-    return jpeg if abs(llegada - momento) <= tolerancia_s else None
+    return (llegada, jpeg) if abs(llegada - momento) <= tolerancia_s else None
+
+
+def foto_mas_cercana(fotos, momento, tolerancia_s=1.5):
+    captura = captura_mas_cercana(fotos, momento, tolerancia_s)
+    return captura[1] if captura else None
 
 
 def momento_foto_zona(ajustes, zona, activada_en):
@@ -208,18 +213,19 @@ class Vigilancia:
         espera = momento + 0.6 - time.time()  # si cae en el futuro, esperar a que llegue
         if espera > 0:
             time.sleep(min(espera, 5))
-        foto = foto_mas_cercana(list(self.fotos), momento)
-        if foto is None:
+        captura = captura_mas_cercana(list(self.fotos), momento)
+        if captura is None:
             log(self.nombre, f"Z{zona} sin foto de ese momento")
-            self.evento(f"Z{zona} activada, sin foto de ese momento")
+            self.evento(f"Z{zona} activada, sin foto de ese momento", activada_en)
             return
+        llegada, foto = captura
         antes = self.ajustes["antes_s"].get(str(zona), 2)
-        self.subir(foto, "zona", f"Foto de Z{zona}, {antes} s antes")
+        self.subir(foto, "zona", f"Foto de Z{zona}, {antes} s antes", activada_en)
         log(self.nombre, f"foto de Z{zona} subida ({time.time() - momento:.1f} s atras)")
-        self._disparar(foto)  # en reforzado se analiza sin esperar movimiento
+        self._disparar(foto, llegada - self.ajustes["retraso_camara_s"])
 
-    def _disparar(self, foto):
-        self.foto_disparo = foto
+    def _disparar(self, foto, ocurrido_en):
+        self.foto_disparo = (foto, ocurrido_en)
         self.disparo.set()
 
     # --- Deteccion de movimiento ---------------------------------------------
@@ -264,9 +270,10 @@ class Vigilancia:
                     modo = a["reforzado"] if self.reforzado() else a["normal"]
                     if sostenido.agregar(fraccion, modo):
                         sostenido.vaciar()
-                        foto = foto_mas_cercana(list(self.fotos), time.time())
-                        if foto:
-                            self._disparar(foto)
+                        captura = captura_mas_cercana(list(self.fotos), time.time())
+                        if captura:
+                            llegada, foto = captura
+                            self._disparar(foto, llegada - a["retraso_camara_s"])
             finally:
                 proceso.terminate()
                 try:
@@ -284,10 +291,11 @@ class Vigilancia:
         while True:
             self.disparo.wait()
             self.disparo.clear()
-            foto = self.foto_disparo
+            captura = self.foto_disparo
             pausa = self.ajustes["pausa_analisis_s"]["reforzado" if self.reforzado() else "normal"]
-            if not self.activa or foto is None or time.monotonic() - fin_analisis < pausa:
+            if not self.activa or captura is None or time.monotonic() - fin_analisis < pausa:
                 continue  # un disparo durante la pausa se descarta, no se encola
+            foto, ocurrido_en = captura
             if temperatura_c() > self.ajustes["temperatura_max_c"]:
                 log(self.nombre, "analisis salteado por temperatura")
                 continue
@@ -305,21 +313,21 @@ class Vigilancia:
                         resultado = {**resultado, "vehiculo": False, "paso": True}
             except Exception as error:  # noqa: BLE001 - el hilo nunca debe morir
                 log(self.nombre, "analisis fallo:", error)
-                self.evento("Análisis falló")
+                self.evento("Análisis falló", ocurrido_en)
                 continue
             finally:
                 fin_analisis = time.monotonic()
             texto = aviso(resultado)
             if not texto:
                 self.evento("Análisis: un vehículo pasó, no se detuvo" if resultado.get("paso")
-                            else "Análisis: sin personas ni vehículos detenidos")
+                            else "Análisis: sin personas ni vehículos detenidos", ocurrido_en)
             elif not self.avisos_activos:
-                self.subir(foto, "registro", texto)
+                self.subir(foto, "registro", texto, ocurrido_en)
             elif time.monotonic() - ultimo_aviso < self.ajustes["pausa_aviso_s"]:
-                self.evento(f"Análisis: {texto} (sin aviso, hubo uno hace menos de 5 min)")
+                self.evento(f"Análisis: {texto} (sin aviso, hubo uno hace menos de 5 min)", ocurrido_en)
             else:
                 ultimo_aviso = time.monotonic()
-                self.subir(foto, "deteccion", texto)
+                self.subir(foto, "deteccion", texto, ocurrido_en)
 
 
 def aviso(resultado):

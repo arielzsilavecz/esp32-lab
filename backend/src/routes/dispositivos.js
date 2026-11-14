@@ -7,7 +7,7 @@ import { createCommandSql } from '../commandPolicy.js';
 import { validarAjusteLuz } from '../lightParams.js';
 import { borrarCuadro, leerCuadro, validarMovimiento } from '../camaraCuadros.js';
 import { leerCaptura } from '../vigilancia.js';
-import { crearClip, leerClip } from '../camaraClips.js';
+import { crearClip, eliminarClip, leerClip } from '../camaraClips.js';
 
 // Lista cerrada de comandos por tipo: tipo_comando es texto libre en la base, asi
 // que sin esto cualquier sesion podria encolar ordenes arbitrarias.
@@ -181,13 +181,19 @@ dispositivosRouter.get('/:id/imagen', (req, res) => {
 });
 
 dispositivosRouter.post('/:id/eventos/:eventoId/clip', async (req, res) => {
-  const evento = await pool.query(`SELECT e.created_at FROM eventos e
+  const desplazamiento = req.body?.desplazamiento ?? 0;
+  if (!Number.isInteger(desplazamiento) || Math.abs(desplazamiento) > 3600) {
+    return res.status(400).json({ error: 'Desplazamiento inválido' });
+  }
+  const evento = await pool.query(`SELECT e.created_at, e.ocurrido_en FROM eventos e
     JOIN dispositivos d ON d.id = e.dispositivo_id
     WHERE d.tipo = 'camara' AND d.id = $1 AND e.id = $2`, [req.params.id, req.params.eventoId]);
   if (!evento.rowCount) return res.status(404).json({ error: 'Registro no encontrado' });
   const clipId = crearClip(req.params.id);
   if (!clipId) return res.status(409).json({ error: 'Hay videos en preparación. Probá más tarde.' });
-  const parametros = JSON.stringify({ clip_id: clipId, fecha: evento.rows[0].created_at });
+  const fecha = new Date(evento.rows[0].ocurrido_en ?? evento.rows[0].created_at);
+  fecha.setUTCSeconds(fecha.getUTCSeconds() + desplazamiento);
+  const parametros = JSON.stringify({ clip_id: clipId, fecha });
   const orden = await pool.query(createCommandSql,
     [req.params.id, 'clip', req.session.userId, parametros, dispositivoEsperando(req.params.id)]);
   if (!orden.rowCount) {
@@ -205,6 +211,7 @@ dispositivosRouter.get('/:id/clips/:clipId', (req, res) => {
   if (clip.error) return res.status(404).json({ error: clip.error });
   if (!clip.video) return res.status(204).end();
   res.type('video/mp4').send(clip.video);
+  eliminarClip(req.params.clipId);
 });
 
 // Consumo por dia de un mes (vista mensual del disyuntor): ?mes=YYYY-MM.
@@ -256,15 +263,17 @@ dispositivosRouter.get('/:id/eventos', async (req, res) => {
        FROM (SELECT COALESCE($2::date,
          (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) AS d) f
      )
-     SELECT id, texto, captura, created_at FROM eventos, dia
-     WHERE dispositivo_id = $1 AND created_at >= dia.desde AND created_at < dia.hasta
-     ORDER BY created_at DESC`,
+     SELECT id, texto, captura, created_at, ocurrido_en FROM eventos, dia
+     WHERE dispositivo_id = $1 AND COALESCE(ocurrido_en, created_at) >= dia.desde
+       AND COALESCE(ocurrido_en, created_at) < dia.hasta
+     ORDER BY COALESCE(ocurrido_en, created_at) DESC`,
     [req.params.id, fecha]
   );
-  res.json(result.rows.map(({ id, texto, captura, created_at }) => ({
+  res.json(result.rows.map(({ id, texto, captura, created_at, ocurrido_en }) => ({
     id,
     texto,
     created_at,
+    ocurrido_en,
     foto: captura && leerCaptura(captura) ? `/capturas/${captura}.jpg` : null,
   })));
 });
