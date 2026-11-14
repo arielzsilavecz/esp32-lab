@@ -60,7 +60,7 @@ conoce.
   siga en memoria. Se borra a los 60 dias, como el resto del historial.
 - **Foto en la notificacion.** El telefono baja la imagen sin cookies, asi que
   `GET /capturas/<id>.jpg` es publico: id aleatorio de 128 bits, en memoria,
-  vence a las 6 h (tope 200 fotos). Android la muestra expandida; iOS no muestra
+  vence a las 24 h (tope 200 fotos). Android la muestra expandida; iOS no muestra
   imagenes en notificaciones web.
 
 ## Alternativas consideradas
@@ -77,7 +77,7 @@ conoce.
 ## Consecuencias
 
 - Railway: una consulta SQL liviana por camara cada ~25 s, y fotos solo ante
-  Z1/Z2 o deteccion. Las fotos se pierden al redeployar (son de 6 h).
+  Z1/Z2 o deteccion. Las fotos se pierden al redeployar (hasta 24 h).
 - NEO: modelo con vision cargado (~3,3 GB); CPU al 100 % ~2 min por analisis.
   Mientras analiza, una orden escrita del asistente espera su turno.
 - Medicion real: 60 s de vigilancia sin disparos falsos (maximo 4,4 % de imagen

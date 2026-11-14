@@ -82,3 +82,16 @@ el porton y las luces, y sin gastar en Railway mientras nadie mira.
   con fotos antes/despues). Medido: 1 s a 0,6 corre ~1/3 del cuadro. Mientras se
   mira, el puente consulta ordenes cada 0,5 s (en reposo, cada 2 s).
 - Pendiente: ver grabaciones desde la pagina.
+
+## Clip desde el registro
+
+La pagina solicita a NEO, mediante la espera de ordenes existente, un clip del
+horario del registro. NEO busca en `/mnt/backups/camaras/<grabaciones>/` (por
+defecto `camara1`, configurable en el dispositivo del puente), y convierte a
+H.264 un tramo de hasta 30 s a 640 px sin audio; usa un hilo y prioridad baja.
+El backend mantiene hasta cuatro clips en memoria por cinco minutos y solo los
+entrega a una sesion autenticada. Cada camara puede preparar un clip a la vez.
+Los eventos del modelo se registran al terminar el analisis y pueden tener una
+hora posterior al movimiento. Un clip que cae cerca de un corte de archivo puede
+ser mas corto; todavia no concatena segmentos. Si no existe la grabacion, se
+informa en el visor.

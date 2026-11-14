@@ -9,10 +9,30 @@ import { guardarCaptura, registrarEvento, tomarReforzar, vigilanciaActiva } from
 import { claimCommandSql } from '../commandPolicy.js';
 import { alertarTemperatura } from '../serverAlerts.js';
 import { debePersistir } from '../historyPolicy.js';
+import { leerClip } from '../camaraClips.js';
 
 export const deviceRouter = Router();
 
 deviceRouter.use(requireDeviceToken);
+
+deviceRouter.post('/clip/:id', express.raw({ type: 'video/mp4', limit: '10mb' }), (req, res) => {
+  if (req.dispositivo.tipo !== 'camara') return res.status(403).end();
+  const clip = leerClip(req.params.id, req.dispositivo.id);
+  if (!clip || clip.video || clip.error) return res.status(404).end();
+  if (!Buffer.isBuffer(req.body) || req.body.length < 12 || req.body.toString('ascii', 4, 8) !== 'ftyp') {
+    return res.status(400).end();
+  }
+  clip.video = req.body;
+  res.status(204).end();
+});
+
+deviceRouter.post('/clip/:id/error', (req, res) => {
+  if (req.dispositivo.tipo !== 'camara') return res.status(403).end();
+  const clip = leerClip(req.params.id, req.dispositivo.id);
+  if (!clip || clip.video || clip.error) return res.status(404).end();
+  clip.error = 'No se encontró o no se pudo preparar la grabación.';
+  res.status(204).end();
+});
 
 // Mantiene viva la conexion TLS del dispositivo. Railway cierra los sockets
 // ociosos a los 60s exactos (medido) y rehacer el handshake le cuesta ~1.9s a

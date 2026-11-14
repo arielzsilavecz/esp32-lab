@@ -3,7 +3,7 @@
 //    lee como cabecera de su espera de ordenes, sin consultas extra;
 //  - pedir una captura al activarse Z1/Z2 y esperarla unos segundos para que
 //    el aviso de zona salga con la foto;
-//  - guardar las capturas 6 h detras de un id aleatorio: la notificacion las
+//  - guardar las capturas 24 h detras de un id aleatorio: la notificacion las
 //    muestra sin sesion (el telefono pide la imagen sin cookies).
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -65,7 +65,7 @@ export async function pedirCaptura(ms, zona, activadaEn) {
 }
 
 // --- Almacen de capturas ----------------------------------------------------
-const VIGENCIA_MS = 6 * 60 * 60 * 1000;
+const VIGENCIA_MS = 24 * 60 * 60 * 1000;
 const MAXIMO = 200; // ~35 KB c/u: tope de ~7 MB de memoria
 const guardadas = new Map();
 

@@ -1968,9 +1968,45 @@ button:disabled {
   font-size: 14px;
 }
 
-.camara-registro a {
+.camara-registro .camara-ver-foto {
   color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
+
+.camara-visor {
+  width: min(900px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 16px;
+  border: 1px solid #555;
+  border-radius: var(--radio-chico);
+  background: #1a1a19;
+  color: #eee;
+}
+
+.camara-visor::backdrop { background: rgb(0 0 0 / 80%); }
+
+.camara-visor-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.camara-visor-cabecera p { margin: 0; }
+.camara-visor img, .camara-visor video {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100dvh - 150px);
+  margin: auto;
+  object-fit: contain;
+}
+.camara-visor img[hidden], .camara-visor video[hidden] { display: none; }
 
 .asistente {
   display: flex;

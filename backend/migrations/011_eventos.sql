@@ -2,7 +2,7 @@
 -- camara, ADR-0015). A diferencia de `estados` no es un snapshot: cada fila ya
 -- es una linea del registro ("Vigilancia activada", "Foto de Z1", resultado de
 -- un analisis). `captura` es el id de la foto en memoria, si la hubo (vence a
--- las 6 h; despues la linea queda sin foto).
+-- las 24 h; despues la linea queda sin foto).
 CREATE TABLE IF NOT EXISTS eventos (
   id             SERIAL PRIMARY KEY,
   dispositivo_id INTEGER NOT NULL REFERENCES dispositivos(id),

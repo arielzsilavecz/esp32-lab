@@ -36,6 +36,75 @@ function crearRegistroCamara(dispositivo) {
   cuerpo.className = 'programacion-cuerpo';
   const logEl = document.createElement('div');
   logEl.className = 'log-zonas';
+  const visor = document.createElement('dialog');
+  visor.className = 'camara-visor';
+  visor.setAttribute('aria-label', 'Foto del registro de vigilancia');
+  const cabecera = document.createElement('div');
+  cabecera.className = 'camara-visor-cabecera';
+  const descripcion = document.createElement('p');
+  const cerrar = document.createElement('button');
+  cerrar.type = 'button';
+  cerrar.textContent = 'Cerrar';
+  cerrar.addEventListener('click', () => visor.close());
+  cabecera.append(descripcion, cerrar);
+  const imagen = document.createElement('img');
+  imagen.alt = 'Foto del registro de vigilancia';
+  const video = document.createElement('video');
+  video.controls = true;
+  video.hidden = true;
+  let urlVideo = null;
+  let solicitud = 0;
+  const errorFoto = document.createElement('p');
+  errorFoto.className = 'camara-visor-error';
+  errorFoto.setAttribute('role', 'status');
+  imagen.addEventListener('error', () => {
+    imagen.hidden = true;
+    errorFoto.textContent = 'La foto no está disponible o ya venció.';
+  });
+  visor.addEventListener('close', () => {
+    solicitud += 1;
+    imagen.removeAttribute('src');
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    if (urlVideo) URL.revokeObjectURL(urlVideo);
+    urlVideo = null;
+  });
+  visor.addEventListener('click', (event) => {
+    if (event.target === visor) visor.close();
+  });
+  visor.append(cabecera, imagen, video, errorFoto);
+
+  async function verVideo(evento) {
+    const actual = ++solicitud;
+    descripcion.textContent = `${horaExactaAR(evento.createdAt)} · Video cercano al registro`;
+    imagen.hidden = true;
+    video.hidden = true;
+    errorFoto.textContent = 'Preparando video… La hora del registro puede ser posterior al movimiento.';
+    visor.showModal();
+    try {
+      const respuesta = await api(`/api/dispositivos/${dispositivo.id}/eventos/${evento.id}/clip`, { method: 'POST' });
+      const { id } = await exigirRespuestaExitosa(respuesta);
+      const limite = Date.now() + 90_000;
+      while (actual === solicitud && Date.now() < limite) {
+        const clip = await api(`/api/dispositivos/${dispositivo.id}/clips/${id}`, { cache: 'no-store' });
+        if (clip.status === 200) {
+          const blob = await clip.blob();
+          if (actual !== solicitud) return;
+          urlVideo = URL.createObjectURL(blob);
+          video.src = urlVideo;
+          video.hidden = false;
+          errorFoto.textContent = 'Video sin audio. La hora del registro puede ser posterior al movimiento.';
+          return;
+        }
+        if (clip.status !== 204) await exigirRespuestaExitosa(clip);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+      if (actual === solicitud) errorFoto.textContent = 'El video tardó demasiado. Probá nuevamente.';
+    } catch (error) {
+      if (actual === solicitud) errorFoto.textContent = error.message;
+    }
+  }
 
   async function cargar() {
     try {
@@ -46,14 +115,31 @@ function crearRegistroCamara(dispositivo) {
         cuenta: (n) => (n === 1 ? '1 registro' : `${n} registros`),
         linea: (evento, linea) => {
           if (evento.texto.startsWith('Aviso')) linea.classList.add('log-activa');
-          if (!evento.foto) return evento.texto;
-          const foto = document.createElement('a');
-          foto.href = evento.foto;
-          foto.target = '_blank';
-          foto.rel = 'noopener';
-          foto.textContent = 'Ver foto';
           const partes = document.createDocumentFragment();
-          partes.append(`${evento.texto} · `, foto);
+          partes.append(evento.texto);
+          if (evento.foto) {
+            const foto = document.createElement('button');
+            foto.type = 'button';
+            foto.className = 'camara-ver-foto';
+            foto.textContent = 'Ver foto';
+            foto.addEventListener('click', () => {
+              descripcion.textContent = `${horaExactaAR(evento.createdAt)} · ${evento.texto}`;
+              errorFoto.textContent = '';
+              video.hidden = true;
+              imagen.hidden = false;
+              imagen.src = evento.foto;
+              visor.showModal();
+            });
+            partes.append(' · ', foto);
+          }
+          if (evento.id) {
+            const botonVideo = document.createElement('button');
+            botonVideo.type = 'button';
+            botonVideo.className = 'camara-ver-foto';
+            botonVideo.textContent = 'Ver video';
+            botonVideo.addEventListener('click', () => verVideo(evento));
+            partes.append(' · ', botonVideo);
+          }
           return partes;
         },
       });
@@ -64,7 +150,7 @@ function crearRegistroCamara(dispositivo) {
 
   const fechaEl = crearSelectorFecha(cargar);
   cuerpo.append(fechaEl, logEl);
-  registro.append(titulo, cuerpo);
+  registro.append(titulo, cuerpo, visor);
   registro.addEventListener('toggle', () => { if (registro.open) cargar(); });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && registro.open) cargar();

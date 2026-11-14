@@ -20,9 +20,12 @@ Assistant en /etc/neo-bridge-ha.token (ambos root, 600, fuera del repo).
 """
 import http.client
 import json
+import datetime
+from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -184,6 +187,12 @@ class Backend:
     def evento(self, texto):
         return self._pedir("POST", "/api/device/evento", {"texto": texto})
 
+    def subir_clip(self, clip_id, video):
+        return self._pedir("POST", f"/api/device/clip/{clip_id}", video, tipo="video/mp4")
+
+    def error_clip(self, clip_id):
+        return self._pedir("POST", f"/api/device/clip/{clip_id}/error")
+
 
 VER_SEGUNDOS = 120  # corte automatico: la pagina renueva con "Seguir mirando"
 
@@ -324,6 +333,24 @@ def vigilar_estado(dispositivo, url, leer, cambio, intervalo, forzar):
         forzar.wait(1.0)
 
 
+def buscar_grabacion(carpeta, fecha_local):
+    archivos = []
+    for archivo in carpeta.glob('*.mkv'):
+        try:
+            inicio = datetime.datetime.strptime(archivo.stem, '%Y-%m-%d_%H-%M-%S')
+        except ValueError:
+            continue
+        if inicio <= fecha_local:
+            archivos.append((inicio, archivo))
+    if not archivos:
+        raise ValueError('grabacion no disponible')
+    inicio, archivo = max(archivos)
+    desplazamiento = (fecha_local - inicio).total_seconds()
+    if desplazamiento > 600:
+        raise ValueError('grabacion no disponible')
+    return archivo, desplazamiento
+
+
 def atender_camara(dispositivo, url, url_llm):
     nombre = dispositivo["nombre"]
     transmision = Transmision(dispositivo, url)
@@ -352,6 +379,37 @@ def atender_camara(dispositivo, url, url_llm):
 
     vigilancia = Vigilancia(dispositivo, url_llm, subir, evento)
 
+    def preparar_clip(parametros):
+        clip_id = parametros.get("clip_id", "")
+        if not isinstance(clip_id, str) or not re.fullmatch(r"[0-9a-f]{32}", clip_id):
+            return
+        backend = Backend(url, dispositivo["token"], timeout=30)
+        try:
+            fecha = datetime.datetime.fromisoformat(parametros["fecha"].replace("Z", "+00:00"))
+            if fecha.tzinfo is None:
+                raise ValueError("fecha sin zona horaria")
+            fecha_local = fecha.astimezone().replace(tzinfo=None)
+            carpeta = dispositivo.get("grabaciones", "camara1")
+            if not re.fullmatch(r"[a-zA-Z0-9_-]+", carpeta):
+                raise ValueError("carpeta de camara invalida")
+            archivo, desplazamiento = buscar_grabacion(Path('/mnt/backups/camaras') / carpeta, fecha_local)
+            with tempfile.TemporaryDirectory(prefix='neo-clip-') as temporal:
+                salida = Path(temporal) / 'clip.mp4'
+                subprocess.run(['nice', '-n', '19', 'ffmpeg', '-nostdin', '-loglevel', 'error',
+                    '-ss', str(max(0, desplazamiento - 10)), '-i', str(archivo), '-t', '30',
+                    '-map', '0:v:0', '-vf', 'scale=640:-2', '-c:v', 'libx264', '-threads', '1',
+                    '-preset', 'ultrafast', '-crf', '30', '-an', '-movflags', '+faststart',
+                    '-y', str(salida)], check=True, timeout=90)
+                status, _ = backend.subir_clip(clip_id, salida.read_bytes())
+                if status != 204:
+                    log(nombre, 'no se pudo subir el video:', status)
+        except Exception as error:  # noqa: BLE001
+            log(nombre, 'no se pudo preparar el video:', error)
+            try:
+                backend.error_clip(clip_id)
+            except Exception as envio_error:  # noqa: BLE001
+                log(nombre, 'no se pudo informar el error del video:', envio_error)
+
     def al_responder(cabeceras):
         if "x-vigilancia" in cabeceras:  # backend sin vigilancia: no se toca nada
             vigilancia.actualizar(cabeceras["x-vigilancia"] == "1", leer_reforzar(cabeceras.get("x-reforzar")))
@@ -366,6 +424,8 @@ def atender_camara(dispositivo, url, url_llm):
             transmision.detener()
         elif vigente and tipo == "mover" and direccion in GIROS and dispositivo.get("onvif_ptz"):
             girar(dispositivo, direccion)
+        elif vigente and tipo == "clip" and isinstance(comando.get("parametros"), dict):
+            threading.Thread(target=preparar_clip, args=(comando["parametros"],), daemon=True).start()
         else:
             log(nombre, "orden rechazada o vencida", tipo)
         forzar.set()
